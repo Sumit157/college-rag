@@ -1,0 +1,34 @@
+# Environment
+.env
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+frontend/dist/
+frontend/.vite/
+*.log
+npm-debug.log*
+
+# Uploaded documents and local data
+data/*
+!data/.gitkeep
+
+# Database dumps and model files
+*.bson
+*.gguf
+*.bin
+*.pt
+*.pth
+*.onnx
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
