@@ -293,25 +293,25 @@ export function ChatPage() {
 
   return (
     <div className="mx-auto flex h-full max-w-3xl flex-col px-4 py-6 sm:px-6 lg:px-8">
-      <div className="mb-4 flex items-start justify-between gap-4">
-        <div>
+      <div className="mb-4">
+        <div className="flex items-center justify-between gap-4">
           <h1 className="text-2xl font-semibold tracking-tight">Chat</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Ask questions about your uploaded material. Answers include the exact
-            sources they were built from.
-          </p>
+          {messages.length > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={clearConversation}
+              disabled={busy}
+            >
+              <Eraser className="size-4" aria-hidden="true" />
+              Clear
+            </Button>
+          )}
         </div>
-        {messages.length > 0 && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={clearConversation}
-            disabled={busy}
-          >
-            <Eraser className="size-4" aria-hidden="true" />
-            Clear
-          </Button>
-        )}
+        <p className="mt-1 text-sm text-muted-foreground">
+          Ask questions about your uploaded material. Answers include the exact
+          sources they were built from.
+        </p>
       </div>
 
       <Card className="flex min-h-0 flex-1 flex-col">

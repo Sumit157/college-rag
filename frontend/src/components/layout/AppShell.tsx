@@ -52,7 +52,7 @@ function Brand() {
 
 export function AppShell() {
   return (
-    <div className="flex min-h-screen bg-background">
+    <div className="flex h-screen bg-background">
       <aside className="hidden w-60 shrink-0 flex-col border-r bg-card md:flex">
         <Brand />
         <Separator />
