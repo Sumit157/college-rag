@@ -11,8 +11,8 @@ The AI coding agent MUST read this file before starting work and MUST update it 
 ## Current Phase
 
 ```text
-Phase: 2
-Name: Retrieval
+Phase: 3
+Name: Core RAG
 Status: COMPLETED
 ```
 
@@ -33,7 +33,7 @@ COMPLETED
 Phase 0 — Foundation       [x] Completed
 Phase 1 — Ingestion        [x] Completed
 Phase 2 — Retrieval        [x] Completed
-Phase 3 — Core RAG         [ ] Not started
+Phase 3 — Core RAG         [x] Completed
 Phase 4 — Chat UI          [ ] Not started
 Phase 5 — MVP Hardening    [ ] Not started
 Phase 6 — Study Features   [ ] Not started
@@ -45,7 +45,7 @@ Phase 7 — Advanced         [ ] Not started
 ## Current Objective
 
 ```text
-Start Phase 3 — Core RAG.
+Start Phase 4 — Chat UI.
 ```
 
 ---
@@ -96,6 +96,25 @@ Start Phase 3 — Core RAG.
   embedding/retrieval failures → user-safe 503, never stack traces.
 - New config: `RETRIEVAL_TOP_K` (5), `EMBEDDING_DIMS` (768), `VECTOR_SEARCH_MODE` (auto).
 
+### Phase 3 — Core RAG
+- Context builder (`app/rag/context.py`): dedupe, relevance order, token budget
+  (`CONTEXT_MAX_TOKENS`, default 3000), document/page/section preserved as
+  numbered blocks, first chunk always included (truncated if oversized).
+- Grounded system prompt (`app/rag/prompts.py`): context is the only knowledge
+  source; fixed missing-context sentence; no invented citations; no chain-of-thought.
+- Ollama generation (`app/llm/ollama.py`): `chat` (one-shot) + `chat_stream`
+  (NDJSON deltas), temperature from `LLM_TEMPERATURE`; clear `OllamaError`s.
+- ChatEngine (`app/rag/engine.py`): retrieve → threshold filter
+  (`RELEVANCE_THRESHOLD`, default 0.4) → build context → generate.
+- `POST /api/chat`: `{answer, evidence, grounded}`; no evidence above threshold →
+  fixed missing-context message, `grounded: false`, LLM never called;
+  LLM failure → friendly 503, no stack traces.
+- `POST /api/chat/stream`: SSE events `meta` (evidence first) → `token`* → `done`,
+  or `error` on failure; no-evidence path emits `meta` + `done` without tokens.
+- Citations/evidence are assembled by backend code only; the LLM answers from
+  numbered context blocks `[1] [2] ...`.
+- New config: `RELEVANCE_THRESHOLD` (0.4), `CONTEXT_MAX_TOKENS` (3000).
+
 ---
 
 ## In Progress
@@ -106,7 +125,7 @@ Start Phase 3 — Core RAG.
 
 ## Remaining
 
-- Phase 3+ requirements (context builder, grounded generation, chat UI, hardening).
+- Phase 4+ requirements (chat UI, MVP hardening, study features).
 
 ---
 
@@ -118,9 +137,11 @@ Backend
   app/core/config.py               settings (env-driven)
   app/database/mongo.py            connection wrapper
   app/database/repositories.py     DocumentRepository, ChunkRepository + indexes
-  app/llm/ollama.py                Ollama health/model adapter
+  app/llm/ollama.py                Ollama adapter: health, chat, chat_stream, get_llm_provider
   app/api/routes/health.py         GET /api/health
   app/api/routes/documents.py      upload/list/detail/chunks/delete
+  app/api/routes/search.py         POST /api/search
+  app/api/routes/chat.py           POST /api/chat + /api/chat/stream (SSE)
   app/api/routes/stats.py          GET /api/stats
   app/ingestion/validation.py      extension/MIME/size/content checks
   app/ingestion/hashing.py         sha256
@@ -137,8 +158,10 @@ Backend
   app/retrieval/retriever.py       question → embedding → search → evidence
   app/retrieval/evidence.py        evidence object builder (sequential ids)
   app/retrieval/startup.py         vector index + backfill at startup (best-effort)
-  app/api/routes/search.py         POST /api/search
-  app/models/health.py, document.py, evidence.py
+  app/rag/prompts.py               grounded system prompt + message builder
+  app/rag/context.py               context dedupe/budget/truncation
+  app/rag/engine.py                ChatEngine: retrieve → threshold → generate
+  app/models/health.py, document.py, evidence.py, chat.py
 
 Frontend
   frontend/src/pages/Documents.tsx  upload, table, filters, detail + delete dialogs
@@ -153,18 +176,20 @@ Frontend
 ## Tests
 
 ```text
-Tests written: 126
-Tests passing: 126
+Tests written: 150
+Tests passing: 150
 Tests failing: 0
 ```
 
 Covers: validation, hashing, cleaning, section heuristics, chunking, all four parsers,
 repositories (live MongoDB), document API end-to-end (upload/duplicate/filters/chunks/delete/stats),
-config, health endpoint, Ollama adapter, live infrastructure, embedding provider
-(MockTransport: batching, legacy fallback, error mapping), vector store (live MongoDB:
-cosine math, ranking, top_k, metadata filters, auto-fallback), retriever (evidence ids,
-filter pass-through, relevance clamping), search API (evidence shape, ranking,
-subject/semester/document filters, validation, safe 503).
+config, health endpoint, Ollama adapter (health + chat + streaming), live infrastructure,
+embedding provider (MockTransport: batching, legacy fallback, error mapping), vector store
+(live MongoDB: cosine math, ranking, top_k, metadata filters, auto-fallback), retriever
+(evidence ids, filter pass-through, relevance clamping), search API (evidence shape, ranking,
+subject/semester/document filters, validation, safe 503), context builder (dedupe/budget/
+truncation), grounded prompts, chat engine (threshold/filters/generation), chat API
+(grounded answers, missing-context without LLM call, safe 503s, SSE event order).
 
 Frontend: `npm run build` (tsc + vite) and `npm run lint` (oxlint) pass (warnings only).
 
@@ -205,6 +230,9 @@ None.
   standalone MongoDB while staying Atlas-ready.
 - Evidence metadata (ids, filenames, pages, sections, relevance) is created by backend
   code, never by the LLM.
+- Grounding is enforced twice: evidence below `RELEVANCE_THRESHOLD` never reaches the
+  prompt, and the system prompt restricts answers to the supplied context with a fixed
+  missing-context sentence.
 
 ---
 
@@ -219,15 +247,20 @@ None.
   `POST /api/search` returned evidence ranked correctly (related query 0.72 vs
   unrelated 0.36); subject/semester filters narrow results; blank query → 422;
   startup backfill embedded a document uploaded before Phase 2 existed.
+- Phase 2 committed and pushed (`538cb42`).
+- Phase 3 verified live with real llama3.2:3b: `POST /api/chat` answered a Docker
+  question grounded in the uploaded PDF (evidence with pages + relevance 0.47–0.57,
+  `grounded: true`); unrelated question → missing-context message; `POST /api/chat/stream`
+  emitted meta → token → done events and streamed `docker rmi <image_name>`.
 
 ---
 
 ## Last Completed Task
 
 ```text
-Phase 2 acceptance verified: 126/126 tests pass, real-embedding end-to-end search
-confirmed (evidence objects with page/section/relevance, metadata filters, validation,
-safe 503s), docs (API/DATABASE/RAG/ARCHITECTURE/ROADMAP) updated to match reality.
+Phase 3 acceptance verified: 150/150 tests pass, end-to-end grounded Q&A confirmed
+against real Ollama generation (chat + SSE streaming, missing-context path, friendly
+503s), docs (API/ROADMAP) and CURRENT_STATE updated.
 ```
 
 ---
@@ -235,10 +268,10 @@ safe 503s), docs (API/DATABASE/RAG/ARCHITECTURE/ROADMAP) updated to match realit
 ## Next Task
 
 ```text
-Start Phase 3 — Core RAG.
-Read docs/ROADMAP.md Phase 3: context builder, grounded system prompt, Ollama
-generation, evidence-aware answers, programmatic citations, missing-context
-behaviour, chat API (POST /api/chat).
+Start Phase 4 — Chat UI.
+Read docs/ROADMAP.md Phase 4: React chat, conversation message list, question
+composer with filters, streaming consumption, source cards, source detail dialog
+(shadcn/ui), grounding states.
 ```
 
 ---
@@ -246,5 +279,5 @@ behaviour, chat API (POST /api/chat).
 ## Last Updated
 
 ```text
-2026-10-09 (Phase 2 — Retrieval: COMPLETED)
+2026-10-09 (Phase 3 — Core RAG: COMPLETED)
 ```

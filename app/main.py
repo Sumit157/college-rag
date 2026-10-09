@@ -9,7 +9,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api.routes import documents, health, search, stats
+from app.api.routes import chat, documents, health, search, stats
 from app.core.config import get_settings
 from app.database.mongo import close_mongo, init_mongo
 from app.retrieval.startup import ensure_retrieval_ready
@@ -64,6 +64,7 @@ def create_app() -> FastAPI:
     app.include_router(health.router, prefix=settings.api_prefix)
     app.include_router(documents.router, prefix=settings.api_prefix)
     app.include_router(search.router, prefix=settings.api_prefix)
+    app.include_router(chat.router, prefix=settings.api_prefix)
     app.include_router(stats.router, prefix=settings.api_prefix)
 
     return app

@@ -48,6 +48,12 @@ class Settings(BaseSettings):
     # cosine scoring. "vector": require $vectorSearch. "local": in-process only.
     vector_search_mode: str = "auto"
 
+    # RAG / generation
+    # Evidence below this relevance (cosine) is rejected as irrelevant.
+    relevance_threshold: float = 0.4
+    # Token budget for retrieved context handed to the LLM.
+    context_max_tokens: int = 3000
+
     @property
     def max_upload_size_bytes(self) -> int:
         return self.max_upload_size_mb * 1024 * 1024

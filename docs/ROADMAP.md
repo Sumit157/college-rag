@@ -37,13 +37,13 @@ The project is developed in explicit phases. Each phase must produce a usable, t
 **Checkpoint:** relevant source chunks can be retrieved reliably.
 
 ## Phase 3 — Core RAG
-- [ ] Context builder
-- [ ] Grounded system prompt
-- [ ] Ollama generation
-- [ ] Evidence-aware answers
-- [ ] Programmatic citations
-- [ ] Missing-context behaviour
-- [ ] Chat API
+- [x] Context builder
+- [x] Grounded system prompt
+- [x] Ollama generation
+- [x] Evidence-aware answers
+- [x] Programmatic citations
+- [x] Missing-context behaviour
+- [x] Chat API
 
 **Checkpoint:** end-to-end document-grounded Q&A works.
 

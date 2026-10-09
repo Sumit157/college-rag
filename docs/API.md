@@ -68,11 +68,16 @@ Request:
 ```json
 {
   "question": "Explain paging",
-  "subject": "Operating Systems"
+  "subject": "Operating Systems",
+  "semester": 5,
+  "document_id": "optional",
+  "top_k": 5
 }
 ```
 
-Response:
+`question` is required (1–2000 chars); all filters are optional.
+
+Response (`POST /chat`):
 
 ```json
 {
@@ -80,9 +85,12 @@ Response:
   "evidence": [
     {
       "id": "evidence-1",
-      "document": "OS Notes.pdf",
+      "document_id": "...",
+      "filename": "OS Notes.pdf",
       "page": 42,
       "section": "Memory Management",
+      "chunk_id": "...",
+      "text": "...",
       "relevance": 0.91
     }
   ],
@@ -90,7 +98,24 @@ Response:
 }
 ```
 
-The frontend uses `evidence` to render source/context references. The backend, not the LLM, creates this metadata.
+When no evidence passes the relevance threshold the answer is the fixed
+missing-context message with `grounded: false` and `evidence: []` — the LLM is
+not called. The frontend uses `evidence` to render source/context references.
+The backend, not the LLM, creates this metadata.
+
+### Streaming (`POST /chat/stream`)
+
+Server-Sent Events (`text/event-stream`), one JSON object per `data:` line:
+
+```text
+{"type":"meta","question":"...","grounded":true,"evidence":[...]}   first: sources + grounding
+{"type":"token","text":"Pag"}                                       answer deltas
+{"type":"done","answer":"...","grounded":true,"evidence":[...]}     final state
+{"type":"error","detail":"..."}                                     generation failed (replaces done)
+```
+
+Without evidence: `meta` (`grounded: false`) followed directly by `done` with
+the missing-context answer; no `token` events.
 
 ## Errors
 

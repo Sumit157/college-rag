@@ -1,10 +1,9 @@
-"""Ollama adapter: health and model checks.
-
-Generation and streaming arrive in Phase 3; this module only exposes the
-connectivity surface required by the foundation phase.
-"""
+"""Ollama adapter: health, model checks, chat generation and streaming."""
 
 from __future__ import annotations
+
+import json
+from collections.abc import AsyncIterator
 
 import httpx
 
@@ -78,3 +77,85 @@ class OllamaProvider:
             "embedding_model": settings.embedding_model,
             "configured_model_available": configured_ready,
         }
+
+    async def chat(
+        self,
+        messages: list[dict],
+        temperature: float | None = None,
+    ) -> str:
+        """One-shot chat completion; returns the assistant message text."""
+        settings = get_settings()
+        payload = {
+            "model": settings.llm_model,
+            "messages": messages,
+            "stream": False,
+            "options": {
+                "temperature": (
+                    temperature if temperature is not None else settings.llm_temperature
+                )
+            },
+        }
+        try:
+            async with self._client() as client:
+                response = await client.post(f"{self._base_url}/api/chat", json=payload)
+                response.raise_for_status()
+                data = response.json()
+        except httpx.HTTPError as exc:
+            raise OllamaError("Ollama generation failed") from exc
+        content = (data.get("message") or {}).get("content")
+        if not isinstance(content, str) or not content.strip():
+            raise OllamaError("Ollama returned an empty response")
+        return content
+
+    async def chat_stream(
+        self,
+        messages: list[dict],
+        temperature: float | None = None,
+    ) -> AsyncIterator[str]:
+        """Stream assistant message deltas as they are generated."""
+        settings = get_settings()
+        payload = {
+            "model": settings.llm_model,
+            "messages": messages,
+            "stream": True,
+            "options": {
+                "temperature": (
+                    temperature if temperature is not None else settings.llm_temperature
+                )
+            },
+        }
+        try:
+            async with self._client() as client:
+                async with client.stream(
+                    "POST", f"{self._base_url}/api/chat", json=payload
+                ) as response:
+                    if response.status_code >= 400:
+                        raise OllamaError("Ollama generation failed")
+                    async for line in response.aiter_lines():
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            data = json.loads(line)
+                        except ValueError:
+                            continue
+                        if data.get("error"):
+                            raise OllamaError("Ollama generation failed")
+                        content = (data.get("message") or {}).get("content")
+                        if isinstance(content, str) and content:
+                            yield content
+                        if data.get("done"):
+                            break
+        except httpx.HTTPError as exc:
+            raise OllamaError("Ollama generation failed") from exc
+
+
+_llm: OllamaProvider | None = None
+
+
+def get_llm_provider() -> OllamaProvider:
+    """Application-wide LLM provider (lazy singleton)."""
+    global _llm
+    if _llm is None:
+        _llm = OllamaProvider()
+    return _llm
