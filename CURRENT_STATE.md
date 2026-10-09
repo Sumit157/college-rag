@@ -11,8 +11,8 @@ The AI coding agent MUST read this file before starting work and MUST update it 
 ## Current Phase
 
 ```text
-Phase: 3
-Name: Core RAG
+Phase: 4
+Name: Chat UI
 Status: COMPLETED
 ```
 
@@ -34,7 +34,7 @@ Phase 0 — Foundation       [x] Completed
 Phase 1 — Ingestion        [x] Completed
 Phase 2 — Retrieval        [x] Completed
 Phase 3 — Core RAG         [x] Completed
-Phase 4 — Chat UI          [ ] Not started
+Phase 4 — Chat UI          [x] Completed
 Phase 5 — MVP Hardening    [ ] Not started
 Phase 6 — Study Features   [ ] Not started
 Phase 7 — Advanced         [ ] Not started
@@ -45,7 +45,7 @@ Phase 7 — Advanced         [ ] Not started
 ## Current Objective
 
 ```text
-Start Phase 4 — Chat UI.
+Start Phase 5 — MVP hardening.
 ```
 
 ---
@@ -116,6 +116,37 @@ Start Phase 4 — Chat UI.
 - New config: `RELEVANCE_THRESHOLD` (0.5, calibrated against measured score gap:
   related ≥ 0.55, unrelated ≤ 0.49), `CONTEXT_MAX_TOKENS` (3000).
 
+### Phase 4 — Chat UI
+- `frontend/src/types/chat.ts`: evidence/chat request-response/SSE event types.
+- `frontend/src/lib/chat.ts`: `streamChat` — fetch POST to `/api/chat/stream`,
+  incremental SSE parsing (`\n\n` frames, `data:` lines), user-safe `ApiError`s,
+  abort support (AbortController stops reading without an error).
+- `frontend/src/pages/Chat.tsx` (full rewrite):
+  - Conversation message list (user bubbles right with filter chips, assistant
+    answers left, auto-scroll), empty state, Clear button.
+  - Composer: textarea (Enter sends, Shift+Enter newline, 2000 max),
+    subject / semester / document filters populated from indexed documents,
+    Send ↔ Stop (aborts the in-flight stream; partial answer is kept).
+  - Streaming states: "Searching your library…" → "Reviewing sources…" →
+    token-by-token render with caret → final.
+  - Grounding states (per docs/UI.md): ✓ "Answered from your study material"
+    (top relevance ≥ 0.55), ⚠ "partially covers" (0.50–0.55 band),
+    ○ "couldn't find enough information" (grounded=false), red friendly error box.
+  - Source cards under "Supported by": numbered `[1] …` matching the prompt's
+    context blocks, filename · page · section · relevance %, hover "View source".
+  - Source detail dialog (shadcn/ui): page/section/relevance + full retrieved
+    chunk text (scrollable).
+- `ollama_timeout_s` raised 60 → 180 s: a cold Ollama model load (first call
+  after idle) exceeded 60 s and produced `httpx.ReadTimeout`; the stream now
+  waits for generation instead of failing.
+- Verified live through the Vite dev proxy against real llama3.2:3b, driven by
+  headless Chrome (CDP): streamed Docker answer with ✓ badge + source card,
+  source dialog with page/section/55.5% relevance + chunk text, unrelated
+  question → missing-context answer with ○ badge and no LLM call, streaming
+  error path shows friendly `LLM_UNAVAILABLE` detail.
+- Frontend verification: `npm run build` (tsc strict caught a null-dialog bug)
+  + `npm run lint` clean (pre-existing warnings only); 150/150 backend tests.
+
 ---
 
 ## In Progress
@@ -126,7 +157,7 @@ Start Phase 4 — Chat UI.
 
 ## Remaining
 
-- Phase 4+ requirements (chat UI, MVP hardening, study features).
+- Phase 5+ requirements (MVP hardening, study features, advanced retrieval).
 
 ---
 
@@ -165,10 +196,13 @@ Backend
   app/models/health.py, document.py, evidence.py, chat.py
 
 Frontend
+  frontend/src/pages/Chat.tsx        chat: message list, composer, streaming, sources, dialogs
   frontend/src/pages/Documents.tsx  upload, table, filters, detail + delete dialogs
   frontend/src/pages/Dashboard.tsx  stats + recent documents
   frontend/src/types/document.ts    API types
+  frontend/src/types/chat.ts        chat request/response/evidence/SSE types
   frontend/src/lib/api.ts           apiFetch + apiUpload (safe error messages)
+  frontend/src/lib/chat.ts          streamChat (SSE parser, abort support)
   frontend/src/components/ui/{select,table,...}.tsx
 ```
 
@@ -257,15 +291,24 @@ None.
   questions (related top scores 0.555–0.654, unrelated 0.402–0.487). Battery re-run:
   7/7 related questions grounded with correct Docker answers, 3/3 unrelated rejected
   at retrieval (evidence=[], grounded=false, no LLM call, ~4.7s).
+- Phase 4 verified live in a real browser (headless Chrome + CDP): question →
+  streamed tokens → ✓ badge + "Supported by" source card → source dialog
+  (page/section/relevance/full chunk text); unrelated question → ○
+  missing-context state; SSE error events surface the friendly backend detail.
+- Fixed during Phase 4 verification: dialog evaluated `sourceLocation(null)`
+  during render (crashed the whole page — `tsc`'s non-null assertion hid it);
+  stream error detail was overwritten by the client's "connection ended
+  unexpectedly" fallback; grounding partial-support boundary corrected from
+  0.65 → 0.55 to match measured corpus scores; Ollama timeout 60 → 180 s.
 
 ---
 
 ## Last Completed Task
 
 ```text
-Phase 3 acceptance verified: 150/150 tests pass, end-to-end grounded Q&A confirmed
-against real Ollama generation (chat + SSE streaming, missing-context path, friendly
-503s), docs (API/ROADMAP) and CURRENT_STATE updated.
+Phase 4 acceptance verified: chat UI streams grounded answers with source cards
+and detail dialog in a real browser (both grounding states), Stop/Clear/filters
+work, build + lint + 150/150 tests pass, ROADMAP + CURRENT_STATE updated.
 ```
 
 ---
@@ -273,10 +316,10 @@ against real Ollama generation (chat + SSE streaming, missing-context path, frie
 ## Next Task
 
 ```text
-Start Phase 4 — Chat UI.
-Read docs/ROADMAP.md Phase 4: React chat, conversation message list, question
-composer with filters, streaming consumption, source cards, source detail dialog
-(shadcn/ui), grounding states.
+Start Phase 5 — MVP hardening.
+Read docs/ROADMAP.md Phase 5: error handling, security checks, performance
+improvements, RAG evaluation, integration tests, documentation, clean
+installation process.
 ```
 
 ---
@@ -284,5 +327,5 @@ composer with filters, streaming consumption, source cards, source detail dialog
 ## Last Updated
 
 ```text
-2026-10-09 (Phase 3 — Core RAG: COMPLETED)
+2026-10-09 (Phase 4 — Chat UI: COMPLETED)
 ```

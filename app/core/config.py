@@ -29,7 +29,9 @@ class Settings(BaseSettings):
     llm_model: str = "llama3.2:3b"
     embedding_model: str = "nomic-embed-text"
     llm_temperature: float = 0.2
-    ollama_timeout_s: float = 60.0
+    # First Ollama call after a model was unloaded can block while the model
+    # reloads (cold load), so allow generous time before giving up.
+    ollama_timeout_s: float = 180.0
 
     # Frontend origins allowed to call the API
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"

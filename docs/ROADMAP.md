@@ -48,13 +48,13 @@ The project is developed in explicit phases. Each phase must produce a usable, t
 **Checkpoint:** end-to-end document-grounded Q&A works.
 
 ## Phase 4 — Chat UI
-- [ ] React chat
-- [ ] Conversation message list
-- [ ] Question composer with filters
-- [ ] Streaming
-- [ ] Source cards
-- [ ] Source detail dialog (shadcn/ui dialog)
-- [ ] Grounding states
+- [x] React chat
+- [x] Conversation message list
+- [x] Question composer with filters
+- [x] Streaming
+- [x] Source cards
+- [x] Source detail dialog (shadcn/ui dialog)
+- [x] Grounding states
 
 **Checkpoint:** students can comfortably ask questions and verify sources.
 
