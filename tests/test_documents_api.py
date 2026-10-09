@@ -8,7 +8,19 @@ from fastapi.testclient import TestClient
 from app.core.config import get_settings
 from app.database.mongo import Mongo
 
-from tests.conftest import TEST_DB, build_pdf, build_txt
+from tests.conftest import TEST_DB, FakeEmbeddingProvider, build_pdf, build_txt
+
+
+@pytest.fixture(autouse=True)
+def fake_embeddings(monkeypatch) -> None:
+    """Keep document tests hermetic: no Ollama calls."""
+    from app.api.routes import documents as documents_route
+
+    monkeypatch.setattr(
+        documents_route,
+        "get_embedding_provider",
+        lambda: FakeEmbeddingProvider(),
+    )
 
 
 def _upload(

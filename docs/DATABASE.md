@@ -47,9 +47,23 @@ Only `documents` and `document_chunks` are required for the MVP.
 
 ## Vector index
 
-Create a MongoDB vector index over chunk embeddings.
+Chunk embeddings are searched in one of two modes (`VECTOR_SEARCH_MODE`):
 
-Also index common filters such as:
+- `auto` (default): use MongoDB Atlas `$vectorSearch` with a vector search index
+  when the deployment supports it; otherwise fall back to cosine similarity
+  computed in-process over metadata-filtered chunks (standalone Community
+  MongoDB has no vector search stage).
+- `vector`: require Atlas `$vectorSearch` (fail loudly when unavailable).
+- `local`: always score in-process.
+
+Index creation and mode probing are best-effort at startup; search never blocks
+on them. `EMBEDDING_DIMS` must match the configured embedding model
+(nomic-embed-text=768, bge-m3=1024).
+
+Chunks missing an embedding (ingested before embeddings were wired up) are
+backfilled automatically at application startup.
+
+Also filter on common metadata:
 - document_id
 - subject
 - semester

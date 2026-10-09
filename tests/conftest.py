@@ -31,6 +31,38 @@ def drop_test_db() -> None:
         mongo.close()
 
 
+class FakeEmbeddingProvider:
+    """Deterministic hashed bag-of-words embeddings for hermetic tests.
+
+    Shared vocabulary produces similar vectors, so ranking assertions behave
+    like a real embedding model without calling Ollama.
+    """
+
+    def __init__(self, dim: int = 32) -> None:
+        self._dim = dim
+        self.model = "fake-embedding"
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        return [self._vector(text) for text in texts]
+
+    def embed_query(self, text: str) -> list[float]:
+        return self._vector(text)
+
+    def _vector(self, text: str) -> list[float]:
+        import hashlib
+        import math
+        import re
+
+        vector = [0.0] * self._dim
+        for token in re.findall(r"[a-z0-9]+", text.lower()):
+            index = int(hashlib.md5(token.encode()).hexdigest(), 16) % self._dim
+            vector[index] += 1.0
+        norm = math.sqrt(sum(value * value for value in vector))
+        if norm:
+            vector = [value / norm for value in vector]
+        return vector
+
+
 @pytest.fixture
 def make_client():
     """Create TestClient instances bound to an isolated test database."""

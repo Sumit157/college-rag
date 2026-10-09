@@ -27,12 +27,12 @@ The project is developed in explicit phases. Each phase must produce a usable, t
 **Checkpoint:** a document can be uploaded, indexed and inspected.
 
 ## Phase 2 — Retrieval
-- [ ] Embedding provider
-- [ ] MongoDB vector index
-- [ ] Semantic search
-- [ ] Subject/semester/document filters
-- [ ] Evidence objects
-- [ ] Retrieval tests
+- [x] Embedding provider
+- [x] MongoDB vector index
+- [x] Semantic search
+- [x] Subject/semester/document filters
+- [x] Evidence objects
+- [x] Retrieval tests
 
 **Checkpoint:** relevant source chunks can be retrieved reliably.
 

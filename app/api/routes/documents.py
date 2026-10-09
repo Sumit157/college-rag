@@ -10,6 +10,7 @@ from fastapi.concurrency import run_in_threadpool
 from app.core.config import get_settings
 from app.database.mongo import get_mongo
 from app.database.repositories import ChunkRepository, DocumentRepository
+from app.embeddings import get_embedding_provider
 from app.ingestion.errors import IngestionError
 from app.ingestion.pipeline import IngestionPipeline
 from app.models.document import (
@@ -55,6 +56,7 @@ async def create_document(
     pipeline = IngestionPipeline(
         documents=_documents_repo(),
         chunks=_chunks_repo(),
+        embeddings=get_embedding_provider(),
         max_upload_bytes=limit,
     )
     try:

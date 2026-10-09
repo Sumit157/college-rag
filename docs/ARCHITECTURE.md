@@ -26,7 +26,8 @@
 - **Frontend:** React, shadcn/ui and selected ReactBits Pro components.
 - **API:** FastAPI.
 - **Ingestion:** validate → parse → clean → chunk → embed → store.
-- **Retriever:** MongoDB vector search with metadata filters.
+- **Retriever:** MongoDB vector search with metadata filters; uses Atlas `$vectorSearch`
+  when available, otherwise scores cosine similarity in-process (standalone MongoDB).
 - **Evidence layer:** preserves retrieved chunks and source metadata separately from generated text.
 - **RAG engine:** retrieve → validate evidence → build context → generate → attach citations.
 - **LLM adapter:** Ollama.

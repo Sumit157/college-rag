@@ -24,11 +24,37 @@ Request:
   "query": "normalization",
   "subject": "DBMS",
   "semester": 5,
+  "document_id": "optional",
   "top_k": 5
 }
 ```
 
-Return evidence objects with document, page, section, chunk and relevance metadata.
+`query` is required (1–2000 chars). `subject`, `semester`, `document_id` and `top_k`
+(1–50, default `RETRIEVAL_TOP_K`) are optional metadata filters.
+
+Response:
+
+```json
+{
+  "query": "normalization",
+  "evidence": [
+    {
+      "id": "evidence-1",
+      "document_id": "...",
+      "filename": "DBMS Notes.pdf",
+      "page": 42,
+      "section": "Normalization",
+      "chunk_id": "...",
+      "text": "...",
+      "relevance": 0.91
+    }
+  ],
+  "count": 1
+}
+```
+
+Evidence objects carry document, page, section, chunk and relevance metadata.
+Evidence IDs are sequential (`evidence-1`, `evidence-2`, …) in relevance order.
 
 ## Chat
 

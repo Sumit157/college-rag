@@ -39,6 +39,15 @@ class Settings(BaseSettings):
     chunk_size_tokens: int = 600
     chunk_overlap_tokens: int = 80
 
+    # Retrieval
+    retrieval_top_k: int = 5
+    # Dimensions of the configured embedding model (nomic-embed-text=768,
+    # bge-m3=1024). Must match EMBEDDING_MODEL or the vector index breaks.
+    embedding_dims: int = 768
+    # "auto": use MongoDB $vectorSearch when available, fall back to local
+    # cosine scoring. "vector": require $vectorSearch. "local": in-process only.
+    vector_search_mode: str = "auto"
+
     @property
     def max_upload_size_bytes(self) -> int:
         return self.max_upload_size_mb * 1024 * 1024

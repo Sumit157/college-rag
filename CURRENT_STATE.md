@@ -11,8 +11,8 @@ The AI coding agent MUST read this file before starting work and MUST update it 
 ## Current Phase
 
 ```text
-Phase: 1
-Name: Document Ingestion
+Phase: 2
+Name: Retrieval
 Status: COMPLETED
 ```
 
@@ -32,7 +32,7 @@ COMPLETED
 ```text
 Phase 0 — Foundation       [x] Completed
 Phase 1 — Ingestion        [x] Completed
-Phase 2 — Retrieval        [ ] Not started
+Phase 2 — Retrieval        [x] Completed
 Phase 3 — Core RAG         [ ] Not started
 Phase 4 — Chat UI          [ ] Not started
 Phase 5 — MVP Hardening    [ ] Not started
@@ -45,7 +45,7 @@ Phase 7 — Advanced         [ ] Not started
 ## Current Objective
 
 ```text
-Start Phase 2 — Retrieval.
+Start Phase 3 — Core RAG.
 ```
 
 ---
@@ -78,6 +78,24 @@ Start Phase 2 — Retrieval.
   detail dialog with chunk preview, delete confirmation dialog.
 - Dashboard wired to `/api/stats` and recent documents.
 
+### Phase 2 — Retrieval
+- `EmbeddingProvider` interface + `LocalEmbeddingProvider` (Ollama `/api/embed`,
+  batched, automatic `/api/embeddings` fallback for older servers); model from
+  `EMBEDDING_MODEL` (nomic-embed-text, 768 dims).
+- Chunks are embedded at ingestion time; chunks ingested earlier (embedding null)
+  are backfilled automatically at application startup (best-effort, non-blocking).
+- `MongoVectorStore` dual mode (`VECTOR_SEARCH_MODE`):
+  Atlas `$vectorSearch` + vector search index when available; automatic
+  in-process cosine fallback on standalone MongoDB (this machine's build rejects
+  the Atlas stage). One capability probe per process.
+- `POST /api/search`: question → query embedding → vector search → metadata
+  filters (subject / semester / document_id / top_k) → evidence objects
+  (`id` sequential, `document_id`, `filename`, `page`, `section`, `chunk_id`,
+  `text`, `relevance` clamped 0..1), sorted by relevance.
+- Validation: query 1–2000 chars (blank-after-trim → 422), top_k 1–50, semester 1–12;
+  embedding/retrieval failures → user-safe 503, never stack traces.
+- New config: `RETRIEVAL_TOP_K` (5), `EMBEDDING_DIMS` (768), `VECTOR_SEARCH_MODE` (auto).
+
 ---
 
 ## In Progress
@@ -88,7 +106,7 @@ Start Phase 2 — Retrieval.
 
 ## Remaining
 
-- Phase 2 requirements (embedding provider, vector index, semantic search, evidence objects).
+- Phase 3+ requirements (context builder, grounded generation, chat UI, hardening).
 
 ---
 
@@ -110,9 +128,17 @@ Backend
   app/ingestion/sections.py        heading heuristics
   app/ingestion/parsers.py         PDF/DOCX/PPTX/TXT parsers (ParsedUnit)
   app/ingestion/chunking.py        page-safe chunker with overlap
-  app/ingestion/pipeline.py        validate → hash → parse → chunk → store
+  app/ingestion/pipeline.py        validate → hash → parse → chunk → embed → store
   app/ingestion/errors.py          user-safe errors with HTTP status codes
-  app/models/health.py, document.py
+  app/embeddings/provider.py       EmbeddingProvider + LocalEmbeddingProvider (Ollama)
+  app/embeddings/errors.py         EmbeddingError (user-safe, HTTP 503)
+  app/embeddings/backfill.py       startup backfill of missing chunk embeddings
+  app/retrieval/vector_store.py    MongoVectorStore ($vectorSearch / local cosine)
+  app/retrieval/retriever.py       question → embedding → search → evidence
+  app/retrieval/evidence.py        evidence object builder (sequential ids)
+  app/retrieval/startup.py         vector index + backfill at startup (best-effort)
+  app/api/routes/search.py         POST /api/search
+  app/models/health.py, document.py, evidence.py
 
 Frontend
   frontend/src/pages/Documents.tsx  upload, table, filters, detail + delete dialogs
@@ -127,14 +153,18 @@ Frontend
 ## Tests
 
 ```text
-Tests written: 93
-Tests passing: 93
+Tests written: 126
+Tests passing: 126
 Tests failing: 0
 ```
 
 Covers: validation, hashing, cleaning, section heuristics, chunking, all four parsers,
 repositories (live MongoDB), document API end-to-end (upload/duplicate/filters/chunks/delete/stats),
-config, health endpoint, Ollama adapter, live infrastructure.
+config, health endpoint, Ollama adapter, live infrastructure, embedding provider
+(MockTransport: batching, legacy fallback, error mapping), vector store (live MongoDB:
+cosine math, ranking, top_k, metadata filters, auto-fallback), retriever (evidence ids,
+filter pass-through, relevance clamping), search API (evidence shape, ranking,
+subject/semester/document filters, validation, safe 503).
 
 Frontend: `npm run build` (tsc + vite) and `npm run lint` (oxlint) pass (warnings only).
 
@@ -144,7 +174,11 @@ Frontend: `npm run build` (tsc + vite) and `npm run lint` (oxlint) pass (warning
 
 - Port 8000 on this machine is occupied by an unrelated process; local verification runs the
   backend on port 8010 with `VITE_API_PROXY_TARGET=http://localhost:8010`. Defaults remain 8000.
-- Chunk embeddings are stored as `embedding: null` — Phase 2 fills them.
+- This machine's MongoDB rejects Atlas `$vectorSearch`; semantic search runs in automatic
+  local-cosine mode (fine for MVP scale). Switching to Atlas later enables `VECTOR_SEARCH_MODE=auto`
+  native vector search without code changes.
+- Changing `EMBEDDING_MODEL` (different dimensions) requires re-uploading documents;
+  chunks embedded with an old model are skipped by cosine scoring (length mismatch).
 
 ---
 
@@ -166,6 +200,11 @@ None.
   MongoDB holds document metadata + chunks only.
 - Chunks never cross page boundaries; section metadata comes from the chunk's first unit.
 - Document IDs are exposed as strings; `to_object_id` guards invalid IDs (404).
+- Vector search is dual-mode: Atlas `$vectorSearch` when the deployment supports it,
+  in-process cosine otherwise (2026-10-09) — keeps the product local-first on
+  standalone MongoDB while staying Atlas-ready.
+- Evidence metadata (ids, filenames, pages, sections, relevance) is created by backend
+  code, never by the LLM.
 
 ---
 
@@ -175,16 +214,20 @@ None.
 - Phase 1 verified end-to-end: TXT + PDF uploaded through the dev proxy → indexed →
   3 chunks with page/section/subject/semester in MongoDB; duplicate → 409; `.exe` → 415;
   Documents page screenshot confirmed upload/list/status/actions UI.
-- Library cleaned up after verification (0 documents left behind).
+- Phase 1 committed and pushed (`0c04265`).
+- Phase 2 verified live: upload stored real 768-dim nomic-embed-text vectors;
+  `POST /api/search` returned evidence ranked correctly (related query 0.72 vs
+  unrelated 0.36); subject/semester filters narrow results; blank query → 422;
+  startup backfill embedded a document uploaded before Phase 2 existed.
 
 ---
 
 ## Last Completed Task
 
 ```text
-Phase 1 acceptance verified: 93/93 tests pass, end-to-end upload → parse → chunk →
-MongoDB confirmed (chunks carry page/section metadata), UI renders the library with
-status/filters/detail/delete.
+Phase 2 acceptance verified: 126/126 tests pass, real-embedding end-to-end search
+confirmed (evidence objects with page/section/relevance, metadata filters, validation,
+safe 503s), docs (API/DATABASE/RAG/ARCHITECTURE/ROADMAP) updated to match reality.
 ```
 
 ---
@@ -192,10 +235,10 @@ status/filters/detail/delete.
 ## Next Task
 
 ```text
-Start Phase 2 — Retrieval.
-Read docs/ROADMAP.md Phase 2: embedding provider (configurable local model via Ollama),
-MongoDB vector index, semantic search with subject/semester/document filters,
-evidence objects and retrieval tests.
+Start Phase 3 — Core RAG.
+Read docs/ROADMAP.md Phase 3: context builder, grounded system prompt, Ollama
+generation, evidence-aware answers, programmatic citations, missing-context
+behaviour, chat API (POST /api/chat).
 ```
 
 ---
@@ -203,5 +246,5 @@ evidence objects and retrieval tests.
 ## Last Updated
 
 ```text
-2026-10-09
+2026-10-09 (Phase 2 — Retrieval: COMPLETED)
 ```

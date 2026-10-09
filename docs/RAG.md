@@ -39,14 +39,14 @@ If evidence is insufficient:
 Every retrieved chunk should become an evidence object containing:
 
 ```text
-evidence_id
+id            (e.g. "evidence-1")
 document_id
 filename
 page
 section
 chunk_id
 text
-relevance_score
+relevance     (cosine similarity clamped to 0..1)
 ```
 
 Evidence objects are retained through the request and returned to the frontend.

@@ -1,4 +1,4 @@
-"""Ingestion pipeline: validate → hash → parse → clean → chunk → store."""
+"""Ingestion pipeline: validate → hash → parse → clean → chunk → embed → store."""
 
 from __future__ import annotations
 
@@ -6,8 +6,10 @@ from typing import Any
 
 from app.core.config import get_settings
 from app.database.repositories import ChunkRepository, DocumentRepository
+from app.embeddings.errors import EmbeddingError
+from app.embeddings.provider import EmbeddingProvider
 from app.ingestion.cleaning import clean_text, is_empty_text
-from app.ingestion.chunking import chunk_units
+from app.ingestion.chunking import ChunkDraft, chunk_units
 from app.ingestion.errors import (
     DuplicateDocumentError,
     EmptyDocumentError,
@@ -24,6 +26,8 @@ class IngestionPipeline:
         self,
         documents: DocumentRepository,
         chunks: ChunkRepository,
+        *,
+        embeddings: EmbeddingProvider,
         max_upload_bytes: int | None = None,
         chunk_size_tokens: int | None = None,
         chunk_overlap_tokens: int | None = None,
@@ -31,6 +35,7 @@ class IngestionPipeline:
         settings = get_settings()
         self._documents = documents
         self._chunks = chunks
+        self._embeddings = embeddings
         self._max_upload_bytes = (
             max_upload_bytes if max_upload_bytes is not None else settings.max_upload_size_bytes
         )
@@ -77,6 +82,7 @@ class IngestionPipeline:
             drafts = chunk_units(units, self._chunk_size, self._chunk_overlap)
             if not drafts:
                 raise EmptyDocumentError("The document does not contain enough text to index.")
+            vectors = self._embed(drafts)
 
             chunk_records = [
                 {
@@ -88,7 +94,7 @@ class IngestionPipeline:
                     "subject": subject,
                     "semester": semester,
                     "chunk_index": index,
-                    "embedding": None,
+                    "embedding": vectors[index],
                 }
                 for index, draft in enumerate(drafts)
             ]
@@ -101,6 +107,9 @@ class IngestionPipeline:
                 page_count=len(pages) if pages else None,
             )
             return updated or record
+        except EmbeddingError as exc:
+            self._documents.mark_failed(document_id, exc.message)
+            raise
         except IngestionError as exc:
             self._documents.mark_failed(document_id, exc.message)
             raise
@@ -108,6 +117,15 @@ class IngestionPipeline:
             message = "The document could not be processed. It may be corrupted."
             self._documents.mark_failed(document_id, message)
             raise CorruptDocumentError(message) from None
+
+    def _embed(self, drafts: list[ChunkDraft]) -> list[list[float]]:
+        texts = [draft.text for draft in drafts]
+        vectors = self._embeddings.embed(texts)
+        if len(vectors) != len(drafts) or any(not vector for vector in vectors):
+            raise EmbeddingError(
+                "The document could not be prepared for search. Please try again."
+            )
+        return vectors
 
     def _parse_and_clean(
         self,

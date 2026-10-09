@@ -5,18 +5,21 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api.routes import documents, health, stats
+from app.api.routes import documents, health, search, stats
 from app.core.config import get_settings
 from app.database.mongo import close_mongo, init_mongo
+from app.retrieval.startup import ensure_retrieval_ready
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    init_mongo()
+    mongo = init_mongo()
     documents.ensure_indexes()
+    await run_in_threadpool(ensure_retrieval_ready, mongo.db)
     yield
     close_mongo()
 
@@ -60,6 +63,7 @@ def create_app() -> FastAPI:
 
     app.include_router(health.router, prefix=settings.api_prefix)
     app.include_router(documents.router, prefix=settings.api_prefix)
+    app.include_router(search.router, prefix=settings.api_prefix)
     app.include_router(stats.router, prefix=settings.api_prefix)
 
     return app
