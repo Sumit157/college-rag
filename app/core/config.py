@@ -55,6 +55,8 @@ class Settings(BaseSettings):
     relevance_threshold: float = 0.5
     # Token budget for retrieved context handed to the LLM.
     context_max_tokens: int = 3000
+    # Prior question/answer turns replayed to the LLM (0 disables history).
+    chat_history_turns: int = 4
 
     @property
     def max_upload_size_bytes(self) -> int:

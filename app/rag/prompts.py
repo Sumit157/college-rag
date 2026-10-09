@@ -12,10 +12,15 @@ MISSING_CONTEXT_MESSAGE = (
     "I couldn't find enough information about this in the uploaded study material."
 )
 
+# Historical answers are replayed for follow-up questions; cap them so a long
+# conversation cannot crowd out the current context.
+HISTORY_ANSWER_MAX_CHARS = 2000
+
 SYSTEM_PROMPT = """You are a study assistant for a college student's uploaded study material.
 
 Strict rules:
 - The context below is your ONLY knowledge source. Never answer from outside knowledge.
+- Earlier conversation turns are previous questions and your own earlier grounded answers; use them to understand follow-up questions, but every fact must still come from the context below or those earlier answers.
 - If the context does not contain the answer, reply exactly: "I couldn't find enough information about this in the uploaded study material."
 - Be concise and clear; write answers the student can revise from quickly.
 - Never invent filenames, page numbers, sections, or sources.
@@ -35,10 +40,21 @@ def format_context(evidence: list[Evidence]) -> str:
     return "\n\n".join(blocks)
 
 
-def build_messages(question: str, evidence: list[Evidence]) -> list[dict]:
+def build_messages(
+    question: str,
+    evidence: list[Evidence],
+    history: list[dict] | None = None,
+) -> list[dict]:
+    """Build chat messages; `history` is prior turns as {question, answer}."""
     context = format_context(evidence)
     user = f"Context:\n{context}\n\nQuestion: {question}"
-    return [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": user},
-    ]
+    messages: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}]
+    for turn in history or []:
+        prior_question = str(turn.get("question", "")).strip()
+        prior_answer = str(turn.get("answer", ""))[:HISTORY_ANSWER_MAX_CHARS].strip()
+        if not prior_question or not prior_answer:
+            continue
+        messages.append({"role": "user", "content": prior_question})
+        messages.append({"role": "assistant", "content": prior_answer})
+    messages.append({"role": "user", "content": user})
+    return messages

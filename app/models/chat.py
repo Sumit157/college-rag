@@ -13,9 +13,11 @@ class ChatRequest(BaseModel):
     semester: int | None = Field(default=None, ge=1, le=12)
     document_id: str | None = None
     top_k: int | None = Field(default=None, ge=1, le=50)
+    conversation_id: str | None = None
 
 
 class ChatResponse(BaseModel):
     answer: str
     evidence: list[Evidence]
     grounded: bool
+    conversation_id: str

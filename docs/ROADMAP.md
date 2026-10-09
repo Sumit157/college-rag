@@ -55,6 +55,7 @@ The project is developed in explicit phases. Each phase must produce a usable, t
 - [x] Source cards
 - [x] Source detail dialog (shadcn/ui dialog)
 - [x] Grounding states
+- [x] Chat history (persistent conversations: list, resume, continue)
 
 **Checkpoint:** students can comfortably ask questions and verify sources.
 

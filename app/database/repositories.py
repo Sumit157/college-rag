@@ -136,3 +136,59 @@ class ChunkRepository:
 
     def delete_by_document(self, document_id: str) -> int:
         return self._col.delete_many({"document_id": document_id}).deleted_count
+
+
+class ConversationRepository:
+    def __init__(self, db: Database) -> None:
+        self._col = db["conversations"]
+
+    def ensure_indexes(self) -> None:
+        self._col.create_index([("updated_at", DESCENDING)])
+
+    def create(self, title: str) -> dict[str, Any]:
+        now = datetime.now(timezone.utc)
+        record: dict[str, Any] = {
+            "title": title,
+            "turns": [],
+            "turn_count": 0,
+            "created_at": now,
+            "updated_at": now,
+        }
+        result = self._col.insert_one(record)
+        record["_id"] = result.inserted_id
+        return record
+
+    def get(self, conversation_id: str) -> dict[str, Any] | None:
+        oid = to_object_id(conversation_id)
+        if oid is None:
+            return None
+        return self._col.find_one({"_id": oid})
+
+    def list(self) -> list[dict[str, Any]]:
+        # Empty conversations (created but never answered) stay hidden.
+        return list(
+            self._col.find({"turn_count": {"$gt": 0}}, {"turns": 0}).sort(
+                "updated_at", DESCENDING
+            )
+        )
+
+    def append_turn(self, conversation_id: str, turn: dict[str, Any]) -> dict[str, Any] | None:
+        oid = to_object_id(conversation_id)
+        if oid is None:
+            return None
+        return self._col.find_one_and_update(
+            {"_id": oid},
+            {
+                "$push": {"turns": turn},
+                "$inc": {"turn_count": 1},
+                "$set": {"updated_at": datetime.now(timezone.utc)},
+            },
+            return_document=True,
+        )
+
+    def delete(self, conversation_id: str) -> bool:
+        oid = to_object_id(conversation_id)
+        if oid is None:
+            return False
+        result = self._col.delete_one({"_id": oid})
+        return result.deleted_count > 0

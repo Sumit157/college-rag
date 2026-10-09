@@ -145,7 +145,28 @@ Start Phase 5 — MVP hardening.
   question → missing-context answer with ○ badge and no LLM call, streaming
   error path shows friendly `LLM_UNAVAILABLE` detail.
 - Frontend verification: `npm run build` (tsc strict caught a null-dialog bug)
-  + `npm run lint` clean (pre-existing warnings only); 150/150 backend tests.
+  + `npm run lint` clean (pre-existing warnings only); 161/161 backend tests.
+- Chat history (addendum to Phase 4):
+  - `conversations` MongoDB collection (title = first question ≤ 80 chars,
+    embedded `turns[]`, `turn_count`, `created_at`/`updated_at` indexed
+    `updated_at` DESC); turns with answers + evidence are appended after each
+    successful chat request (missing-context path included, LLM errors not).
+  - `ConversationRepository` + `GET /api/conversations` (list, `turn_count > 0`
+    only), `GET /api/conversations/{id}` (full turns for resume),
+    `DELETE /api/conversations/{id}`.
+  - Chat endpoints accept optional `conversation_id` (404 when unknown) and
+    return it in responses and in SSE `meta`/`done` events; prior turns
+    (`CHAT_HISTORY_TURNS`, default 4) are replayed into the prompt as
+    [user, assistant] pairs (historical answers truncated to 2000 chars).
+  - Chat page history UI: bordered "Chat history" panel (desktop aside with
+    New chat button + scrollable conversation list showing title / question
+    count / date, active highlight, hover delete) and a History dialog on
+    mobile; New chat / open / delete flows, list refresh after every send,
+    full conversation restored from server after reload.
+  - Verified end-to-end in headless Chrome (7 checks, network inspected):
+    question creates a history entry, second conversation listed, resume
+    restores messages + sources, follow-up appends (2 questions), survives a
+    page reload, delete removes the right conversation.
 
 ---
 
@@ -168,12 +189,13 @@ Backend
   app/main.py                      app factory, CORS, upload size guard, routers
   app/core/config.py               settings (env-driven)
   app/database/mongo.py            connection wrapper
-  app/database/repositories.py     DocumentRepository, ChunkRepository + indexes
+  app/database/repositories.py     DocumentRepository, ChunkRepository, ConversationRepository + indexes
   app/llm/ollama.py                Ollama adapter: health, chat, chat_stream, get_llm_provider
   app/api/routes/health.py         GET /api/health
   app/api/routes/documents.py      upload/list/detail/chunks/delete
   app/api/routes/search.py         POST /api/search
-  app/api/routes/chat.py           POST /api/chat + /api/chat/stream (SSE)
+  app/api/routes/chat.py           POST /api/chat + /api/chat/stream (SSE), conversation persistence
+  app/api/routes/conversations.py  GET list/detail + DELETE conversations
   app/api/routes/stats.py          GET /api/stats
   app/ingestion/validation.py      extension/MIME/size/content checks
   app/ingestion/hashing.py         sha256
@@ -190,17 +212,17 @@ Backend
   app/retrieval/retriever.py       question → embedding → search → evidence
   app/retrieval/evidence.py        evidence object builder (sequential ids)
   app/retrieval/startup.py         vector index + backfill at startup (best-effort)
-  app/rag/prompts.py               grounded system prompt + message builder
+  app/rag/prompts.py               grounded system prompt + message builder (question + evidence + history)
   app/rag/context.py               context dedupe/budget/truncation
   app/rag/engine.py                ChatEngine: retrieve → threshold → generate
-  app/models/health.py, document.py, evidence.py, chat.py
+  app/models/health.py, document.py, evidence.py, chat.py, conversation.py
 
 Frontend
-  frontend/src/pages/Chat.tsx        chat: message list, composer, streaming, sources, dialogs
+  frontend/src/pages/Chat.tsx        chat: messages, composer, streaming, sources, history panel/dialog
   frontend/src/pages/Documents.tsx  upload, table, filters, detail + delete dialogs
   frontend/src/pages/Dashboard.tsx  stats + recent documents
   frontend/src/types/document.ts    API types
-  frontend/src/types/chat.ts        chat request/response/evidence/SSE types
+  frontend/src/types/chat.ts        chat + conversation request/response/evidence/SSE types
   frontend/src/lib/api.ts           apiFetch + apiUpload (safe error messages)
   frontend/src/lib/chat.ts          streamChat (SSE parser, abort support)
   frontend/src/components/ui/{select,table,...}.tsx
@@ -211,8 +233,8 @@ Frontend
 ## Tests
 
 ```text
-Tests written: 150
-Tests passing: 150
+Tests written: 161
+Tests passing: 161
 Tests failing: 0
 ```
 
@@ -224,7 +246,9 @@ embedding provider (MockTransport: batching, legacy fallback, error mapping), ve
 (evidence ids, filter pass-through, relevance clamping), search API (evidence shape, ranking,
 subject/semester/document filters, validation, safe 503), context builder (dedupe/budget/
 truncation), grounded prompts, chat engine (threshold/filters/generation), chat API
-(grounded answers, missing-context without LLM call, safe 503s, SSE event order).
+(grounded answers, missing-context without LLM call, safe 503s, SSE event order,
+conversation id in responses/events, history replay/limits, persistence rules),
+conversations API (create/list/detail/delete, hidden empty conversations, 404s).
 
 Frontend: `npm run build` (tsc + vite) and `npm run lint` (oxlint) pass (warnings only).
 
@@ -268,6 +292,9 @@ None.
 - Grounding is enforced twice: evidence below `RELEVANCE_THRESHOLD` never reaches the
   prompt, and the system prompt restricts answers to the supplied context with a fixed
   missing-context sentence.
+- Chat history keeps turns embedded in each conversation document (no separate
+  `messages` collection); only completed turns are persisted, so a failed
+  generation never leaves a broken half-turn in history (2026-10-09).
 
 ---
 
@@ -300,15 +327,27 @@ None.
   stream error detail was overwritten by the client's "connection ended
   unexpectedly" fallback; grounding partial-support boundary corrected from
   0.65 → 0.55 to match measured corpus scores; Ollama timeout 60 → 180 s.
+- Chat box layout fixed (`48c7d4d`): AppShell `min-h-screen` → `h-screen`
+  (the chat card had no definite height, so `h-full` collapsed to auto and the
+  page scrolled); header restructured so Clear/New chat sits on the title line.
+- Chat history implemented and verified: backend (conversations collection,
+  repository, API, history replay in prompts) + 11 new tests (161 total);
+  history panel UI (bordered "Chat history" panel with New chat + conversation
+  items, mobile dialog); full 7-step browser E2E passed — create → list →
+  resume → continue (2 questions) → reload persistence → delete, with network
+  traffic verified (correct ids, no stray requests). Screenshots confirmed the
+  aligned panel layout.
 
 ---
 
 ## Last Completed Task
 
 ```text
-Phase 4 acceptance verified: chat UI streams grounded answers with source cards
-and detail dialog in a real browser (both grounding states), Stop/Clear/filters
-work, build + lint + 150/150 tests pass, ROADMAP + CURRENT_STATE updated.
+Chat history shipped: persistent conversations (list/resume/continue/delete)
+with prompt history replay, history panel UI, 161/161 tests, build + lint,
+and a 7-step browser E2E (create → resume → continue → reload → delete)
+verified with network inspection. Docs updated (API, DATABASE, ROADMAP,
+.env.example CHAT_HISTORY_TURNS).
 ```
 
 ---
@@ -327,5 +366,5 @@ installation process.
 ## Last Updated
 
 ```text
-2026-10-09 (Phase 4 — Chat UI: COMPLETED)
+2026-10-09 (Phase 4 addendum — chat history: COMPLETED)
 ```

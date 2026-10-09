@@ -9,17 +9,17 @@ import {
 import {
   Eraser,
   Eye,
+  History,
   Loader2,
   MessageSquare,
+  Plus,
   Send,
   Square,
+  Trash2,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import {
-  Card,
-  CardContent,
-} from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import {
   Dialog,
   DialogContent,
@@ -39,6 +39,10 @@ import { apiFetch, ApiError } from '@/lib/api'
 import { streamChat } from '@/lib/chat'
 import type {
   ChatFilters,
+  ConversationDetail,
+  ConversationListResponse,
+  ConversationSummary,
+  ConversationTurn,
   Evidence,
   StreamEvent,
 } from '@/types/chat'
@@ -99,6 +103,31 @@ function applyStreamEvent(message: Message, event: StreamEvent): Message {
   }
 }
 
+function turnsToMessages(turns: ConversationTurn[]): Message[] {
+  const messages: Message[] = []
+  for (const turn of turns) {
+    const filters: ChatFilters = {}
+    if (turn.subject) filters.subject = turn.subject
+    if (turn.semester) filters.semester = turn.semester
+    if (turn.document_id) filters.document_id = turn.document_id
+    messages.push({
+      id: `${turn.id}-q`,
+      role: 'user',
+      question: turn.question,
+      filters,
+    })
+    messages.push({
+      id: `${turn.id}-a`,
+      role: 'assistant',
+      status: 'done',
+      answer: turn.answer,
+      evidence: turn.evidence,
+      grounded: turn.grounded,
+    })
+  }
+  return messages
+}
+
 function sourceLocation(item: Evidence): string {
   const parts: string[] = []
   parts.push(item.page !== null ? `Page ${item.page}` : 'No page info')
@@ -106,11 +135,18 @@ function sourceLocation(item: Evidence): string {
   return parts.join(' · ')
 }
 
-function GroundingBadge({
-  message,
-}: {
-  message: Message
-}) {
+function formatDate(iso: string): string {
+  try {
+    return new Date(iso).toLocaleDateString(undefined, {
+      month: 'short',
+      day: 'numeric',
+    })
+  } catch {
+    return ''
+  }
+}
+
+function GroundingBadge({ message }: { message: Message }) {
   if (message.status !== 'done') return null
 
   if (message.grounded === false) {
@@ -149,6 +185,52 @@ function ThinkingRow({ label }: { label: string }) {
   )
 }
 
+function ConversationItem({
+  conversation,
+  active,
+  disabled,
+  onSelect,
+  onDelete,
+}: {
+  conversation: ConversationSummary
+  active: boolean
+  disabled: boolean
+  onSelect: () => void
+  onDelete: () => void
+}) {
+  return (
+    <div
+      className={`group flex items-center gap-1 rounded-md border px-2 py-1.5 transition-colors ${
+        active ? 'border-accent-foreground/30 bg-accent' : 'bg-card hover:bg-accent/60'
+      }`}
+    >
+      <button
+        type="button"
+        onClick={onSelect}
+        disabled={disabled}
+        className="min-w-0 flex-1 text-left disabled:opacity-60"
+      >
+        <p className="truncate text-sm font-medium">{conversation.title}</p>
+        <p className="truncate text-xs text-muted-foreground">
+          {conversation.turn_count}{' '}
+          {conversation.turn_count === 1 ? 'question' : 'questions'} ·{' '}
+          {formatDate(conversation.updated_at)}
+        </p>
+      </button>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="size-6 shrink-0 opacity-0 transition-opacity group-hover:opacity-100 data-[state=open]:opacity-100"
+        onClick={onDelete}
+        disabled={disabled}
+        aria-label="Delete conversation"
+      >
+        <Trash2 className="size-3.5" aria-hidden="true" />
+      </Button>
+    </div>
+  )
+}
+
 export function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
@@ -162,9 +244,22 @@ export function ChatPage() {
 
   const [source, setSource] = useState<Evidence | null>(null)
 
+  const [conversations, setConversations] = useState<ConversationSummary[]>([])
+  const [currentId, setCurrentId] = useState<string | null>(null)
+  const [historyOpen, setHistoryOpen] = useState(false)
+
   const abortRef = useRef<AbortController | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
+
+  const loadConversations = useCallback(async () => {
+    try {
+      const data = await apiFetch<ConversationListResponse>('/conversations')
+      setConversations(data.items)
+    } catch {
+      setConversations([])
+    }
+  }, [])
 
   useEffect(() => {
     void (async () => {
@@ -174,8 +269,9 @@ export function ChatPage() {
       } catch {
         setDocs([])
       }
+      await loadConversations()
     })()
-  }, [])
+  }, [loadConversations])
 
   useEffect(() => {
     const container = scrollRef.current
@@ -198,6 +294,41 @@ export function ChatPage() {
 
   const stop = () => {
     abortRef.current?.abort()
+  }
+
+  const startNewChat = () => {
+    if (busy) return
+    setMessages([])
+    setCurrentId(null)
+    setHistoryOpen(false)
+  }
+
+  const openConversation = async (id: string) => {
+    if (busy) return
+    setHistoryOpen(false)
+    try {
+      const conversation = await apiFetch<ConversationDetail>(
+        `/conversations/${id}`,
+      )
+      setMessages(turnsToMessages(conversation.turns))
+      setCurrentId(conversation.id)
+    } catch {
+      // keep the current view if the conversation cannot be loaded
+    }
+  }
+
+  const deleteConversation = async (id: string) => {
+    if (busy) return
+    try {
+      await apiFetch(`/conversations/${id}`, { method: 'DELETE' })
+    } catch {
+      // already gone is fine
+    }
+    if (currentId === id) {
+      setMessages([])
+      setCurrentId(null)
+    }
+    void loadConversations()
   }
 
   const send = async (event?: FormEvent) => {
@@ -233,10 +364,13 @@ export function ChatPage() {
 
     try {
       await streamChat(
-        { question, ...filters },
+        { question, ...filters, conversation_id: currentId },
         controller.signal,
         {
           onEvent: (event) => {
+            if (event.type === 'meta' || event.type === 'done') {
+              setCurrentId(event.conversation_id)
+            }
             if (event.type === 'meta') sawMeta = true
             if (event.type === 'done') sawDone = true
             if (event.type === 'error') sawError = true
@@ -264,6 +398,7 @@ export function ChatPage() {
     } finally {
       setBusy(false)
       abortRef.current = null
+      void loadConversations()
     }
   }
 
@@ -272,11 +407,6 @@ export function ChatPage() {
       event.preventDefault()
       void send()
     }
-  }
-
-  const clearConversation = () => {
-    if (busy) return
-    setMessages([])
   }
 
   const filterLabel = (filters?: ChatFilters): string[] => {
@@ -291,207 +421,277 @@ export function ChatPage() {
     return labels
   }
 
-  return (
-    <div className="mx-auto flex h-full max-w-3xl flex-col px-4 py-6 sm:px-6 lg:px-8">
-      <div className="mb-4">
-        <div className="flex items-center justify-between gap-4">
-          <h1 className="text-2xl font-semibold tracking-tight">Chat</h1>
-          {messages.length > 0 && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={clearConversation}
-              disabled={busy}
-            >
-              <Eraser className="size-4" aria-hidden="true" />
-              Clear
-            </Button>
-          )}
-        </div>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Ask questions about your uploaded material. Answers include the exact
-          sources they were built from.
+  const conversationList = (className?: string) => (
+    <div className={className ?? 'space-y-1'}>
+      {conversations.length === 0 && (
+        <p className="px-1 py-2 text-sm text-muted-foreground">
+          No conversations yet — ask a question to start one.
         </p>
+      )}
+      {conversations.map((conversation) => (
+        <ConversationItem
+          key={conversation.id}
+          conversation={conversation}
+          active={conversation.id === currentId}
+          disabled={busy}
+          onSelect={() => void openConversation(conversation.id)}
+          onDelete={() => void deleteConversation(conversation.id)}
+        />
+      ))}
+    </div>
+  )
+
+  return (
+    <div className="mx-auto flex h-full max-w-6xl gap-4 px-4 py-6 sm:px-6 lg:px-8">
+      <aside className="hidden w-64 shrink-0 flex-col rounded-lg border bg-card p-3 md:flex">
+        <p className="mb-2 px-1 text-sm font-semibold">Chat history</p>
+        <Button
+          variant="outline"
+          className="w-full justify-start"
+          onClick={startNewChat}
+          disabled={busy}
+        >
+          <Plus className="size-4" aria-hidden="true" />
+          New chat
+        </Button>
+        <div className="mt-3 min-h-0 flex-1 overflow-y-auto pr-1">
+          {conversationList('space-y-1')}
+        </div>
+      </aside>
+
+      <div className="flex min-w-0 flex-1 flex-col">
+        <div className="mb-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <h1 className="text-2xl font-semibold tracking-tight">Chat</h1>
+              <Button
+                variant="outline"
+                size="sm"
+                className="md:hidden"
+                onClick={() => setHistoryOpen(true)}
+              >
+                <History className="size-4" aria-hidden="true" />
+                History
+              </Button>
+            </div>
+            {messages.length > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={startNewChat}
+                disabled={busy}
+              >
+                <Eraser className="size-4" aria-hidden="true" />
+                New chat
+              </Button>
+            )}
+          </div>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Ask questions about your uploaded material. Answers include the exact
+            sources they were built from.
+          </p>
+        </div>
+
+        <Card className="flex min-h-0 flex-1 flex-col">
+          <CardContent ref={scrollRef} className="flex-1 overflow-y-auto py-4">
+            {messages.length === 0 && (
+              <div className="flex h-full flex-col items-center justify-center rounded-lg border border-dashed px-6 py-12 text-center">
+                <MessageSquare className="size-8 text-muted-foreground" aria-hidden="true" />
+                <p className="mt-3 text-sm font-medium">No questions yet</p>
+                <p className="mt-1 max-w-md text-sm text-muted-foreground">
+                  Ask something about your study material and the assistant will
+                  answer with the supporting documents, pages and context.
+                </p>
+              </div>
+            )}
+
+            <div className="space-y-6">
+              {messages.map((message) =>
+                message.role === 'user' ? (
+                  <div key={message.id} className="flex flex-col items-end gap-1">
+                    <div className="max-w-[85%] rounded-2xl rounded-br-sm bg-primary px-4 py-2.5 text-sm text-primary-foreground">
+                      <p className="whitespace-pre-wrap">{message.question}</p>
+                    </div>
+                    {filterLabel(message.filters).length > 0 && (
+                      <div className="flex flex-wrap justify-end gap-1">
+                        {filterLabel(message.filters).map((label) => (
+                          <Badge key={label} variant="outline" className="text-xs">
+                            {label}
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div key={message.id} className="max-w-full space-y-3">
+                    {message.status === 'searching' && (
+                      <ThinkingRow label="Searching your library…" />
+                    )}
+                    {message.status === 'thinking' && (
+                      <ThinkingRow label="Reviewing sources…" />
+                    )}
+
+                    {(message.status === 'streaming' ||
+                      message.status === 'done' ||
+                      message.status === 'error') &&
+                      Boolean(message.answer) && (
+                        <div className="text-sm leading-6 whitespace-pre-wrap">
+                          {message.answer}
+                          {message.status === 'streaming' && (
+                            <span className="ml-0.5 inline-block animate-pulse text-muted-foreground">
+                              ▍
+                            </span>
+                          )}
+                        </div>
+                      )}
+
+                    <GroundingBadge message={message} />
+
+                    {message.status === 'error' && (
+                      <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                        {message.error}
+                      </p>
+                    )}
+
+                    {message.status === 'done' &&
+                      message.grounded === true &&
+                      (message.evidence?.length ?? 0) > 0 && (
+                        <div className="space-y-2">
+                          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                            Supported by
+                          </p>
+                          <div className="grid gap-2 sm:grid-cols-2">
+                            {message.evidence?.map((item, index) => (
+                              <button
+                                key={item.id}
+                                type="button"
+                                onClick={() => setSource(item)}
+                                className="group rounded-md border bg-muted/30 px-3 py-2 text-left transition-colors hover:bg-muted"
+                              >
+                                <p className="truncate text-sm font-medium">
+                                  <span className="mr-1 text-muted-foreground">
+                                    [{index + 1}]
+                                  </span>
+                                  {item.filename}
+                                </p>
+                                <p className="truncate text-xs text-muted-foreground">
+                                  {sourceLocation(item)}
+                                </p>
+                                <p className="mt-1 flex items-center justify-between text-xs text-muted-foreground">
+                                  <span>
+                                    Relevance {(item.relevance * 100).toFixed(0)}%
+                                  </span>
+                                  <span className="flex items-center gap-1 text-foreground opacity-0 transition-opacity group-hover:opacity-100">
+                                    <Eye className="size-3" aria-hidden="true" />
+                                    View source
+                                  </span>
+                                </p>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                  </div>
+                ),
+              )}
+              <div ref={bottomRef} />
+            </div>
+          </CardContent>
+        </Card>
+
+        <form onSubmit={(event) => void send(event)} className="mt-3 space-y-2">
+          <Textarea
+            placeholder="Ask a question about your study material… (Enter to send, Shift+Enter for a new line)"
+            value={input}
+            onChange={(event) => setInput(event.target.value)}
+            onKeyDown={onKeyDown}
+            maxLength={2000}
+            className="min-h-20 resize-none"
+            disabled={busy}
+          />
+          <div className="flex flex-wrap items-center gap-2">
+            <Select value={subject} onValueChange={setSubject}>
+              <SelectTrigger className="w-44" aria-label="Subject filter">
+                <SelectValue placeholder="Subject" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All subjects</SelectItem>
+                {subjectOptions.map((name) => (
+                  <SelectItem key={name} value={name}>
+                    {name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <Select value={semester} onValueChange={setSemester}>
+              <SelectTrigger className="w-36" aria-label="Semester filter">
+                <SelectValue placeholder="Semester" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All semesters</SelectItem>
+                {SEMESTERS.map((n) => (
+                  <SelectItem key={n} value={String(n)}>
+                    Sem {n}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <Select value={documentId} onValueChange={setDocumentId}>
+              <SelectTrigger className="w-48" aria-label="Document filter">
+                <SelectValue placeholder="Document" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All documents</SelectItem>
+                {docs.map((doc) => (
+                  <SelectItem key={doc.id} value={doc.id}>
+                    {doc.filename}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <div className="ml-auto">
+              {busy ? (
+                <Button type="button" variant="outline" onClick={stop}>
+                  <Square className="size-4" aria-hidden="true" />
+                  Stop
+                </Button>
+              ) : (
+                <Button type="submit" disabled={!input.trim()}>
+                  <Send className="size-4" aria-hidden="true" />
+                  Send
+                </Button>
+              )}
+            </div>
+          </div>
+          <p className="text-right text-xs text-muted-foreground">
+            Answers use only your uploaded study material — never outside knowledge.
+          </p>
+        </form>
       </div>
 
-      <Card className="flex min-h-0 flex-1 flex-col">
-        <CardContent ref={scrollRef} className="flex-1 overflow-y-auto py-4">
-          {messages.length === 0 && (
-            <div className="flex h-full flex-col items-center justify-center rounded-lg border border-dashed px-6 py-12 text-center">
-              <MessageSquare className="size-8 text-muted-foreground" aria-hidden="true" />
-              <p className="mt-3 text-sm font-medium">No questions yet</p>
-              <p className="mt-1 max-w-md text-sm text-muted-foreground">
-                Ask something about your study material and the assistant will
-                answer with the supporting documents, pages and context.
-              </p>
-            </div>
-          )}
-
-          <div className="space-y-6">
-            {messages.map((message) =>
-              message.role === 'user' ? (
-                <div key={message.id} className="flex flex-col items-end gap-1">
-                  <div className="max-w-[85%] rounded-2xl rounded-br-sm bg-primary px-4 py-2.5 text-sm text-primary-foreground">
-                    <p className="whitespace-pre-wrap">{message.question}</p>
-                  </div>
-                  {filterLabel(message.filters).length > 0 && (
-                    <div className="flex flex-wrap justify-end gap-1">
-                      {filterLabel(message.filters).map((label) => (
-                        <Badge key={label} variant="outline" className="text-xs">
-                          {label}
-                        </Badge>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div key={message.id} className="max-w-full space-y-3">
-                  {message.status === 'searching' && (
-                    <ThinkingRow label="Searching your library…" />
-                  )}
-                  {message.status === 'thinking' && (
-                    <ThinkingRow label="Reviewing sources…" />
-                  )}
-
-                  {(message.status === 'streaming' ||
-                    message.status === 'done' ||
-                    message.status === 'error') &&
-                    Boolean(message.answer) && (
-                      <div className="text-sm leading-6 whitespace-pre-wrap">
-                        {message.answer}
-                        {message.status === 'streaming' && (
-                          <span className="ml-0.5 inline-block animate-pulse text-muted-foreground">
-                            ▍
-                          </span>
-                        )}
-                      </div>
-                    )}
-
-                  <GroundingBadge message={message} />
-
-                  {message.status === 'error' && (
-                    <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                      {message.error}
-                    </p>
-                  )}
-
-                  {message.status === 'done' &&
-                    message.grounded === true &&
-                    (message.evidence?.length ?? 0) > 0 && (
-                      <div className="space-y-2">
-                        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                          Supported by
-                        </p>
-                        <div className="grid gap-2 sm:grid-cols-2">
-                          {message.evidence?.map((item, index) => (
-                            <button
-                              key={item.id}
-                              type="button"
-                              onClick={() => setSource(item)}
-                              className="group rounded-md border bg-muted/30 px-3 py-2 text-left transition-colors hover:bg-muted"
-                            >
-                              <p className="truncate text-sm font-medium">
-                                <span className="mr-1 text-muted-foreground">
-                                  [{index + 1}]
-                                </span>
-                                {item.filename}
-                              </p>
-                              <p className="truncate text-xs text-muted-foreground">
-                                {sourceLocation(item)}
-                              </p>
-                              <p className="mt-1 flex items-center justify-between text-xs text-muted-foreground">
-                                <span>
-                                  Relevance {(item.relevance * 100).toFixed(0)}%
-                                </span>
-                                <span className="flex items-center gap-1 text-foreground opacity-0 transition-opacity group-hover:opacity-100">
-                                  <Eye className="size-3" aria-hidden="true" />
-                                  View source
-                                </span>
-                              </p>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                </div>
-              ),
-            )}
-            <div ref={bottomRef} />
-          </div>
-        </CardContent>
-      </Card>
-
-      <form onSubmit={(event) => void send(event)} className="mt-3 space-y-2">
-        <Textarea
-          placeholder="Ask a question about your study material… (Enter to send, Shift+Enter for a new line)"
-          value={input}
-          onChange={(event) => setInput(event.target.value)}
-          onKeyDown={onKeyDown}
-          maxLength={2000}
-          className="min-h-20 resize-none"
-          disabled={busy}
-        />
-        <div className="flex flex-wrap items-center gap-2">
-          <Select value={subject} onValueChange={setSubject}>
-            <SelectTrigger className="w-44" aria-label="Subject filter">
-              <SelectValue placeholder="Subject" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All subjects</SelectItem>
-              {subjectOptions.map((name) => (
-                <SelectItem key={name} value={name}>
-                  {name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          <Select value={semester} onValueChange={setSemester}>
-            <SelectTrigger className="w-36" aria-label="Semester filter">
-              <SelectValue placeholder="Semester" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All semesters</SelectItem>
-              {SEMESTERS.map((n) => (
-                <SelectItem key={n} value={String(n)}>
-                  Sem {n}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          <Select value={documentId} onValueChange={setDocumentId}>
-            <SelectTrigger className="w-48" aria-label="Document filter">
-              <SelectValue placeholder="Document" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All documents</SelectItem>
-              {docs.map((doc) => (
-                <SelectItem key={doc.id} value={doc.id}>
-                  {doc.filename}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          <div className="ml-auto">
-            {busy ? (
-              <Button type="button" variant="outline" onClick={stop}>
-                <Square className="size-4" aria-hidden="true" />
-                Stop
-              </Button>
-            ) : (
-              <Button type="submit" disabled={!input.trim()}>
-                <Send className="size-4" aria-hidden="true" />
-                Send
-              </Button>
-            )}
-          </div>
-        </div>
-        <p className="text-right text-xs text-muted-foreground">
-          Answers use only your uploaded study material — never outside knowledge.
-        </p>
-      </form>
+      <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Chat history</DialogTitle>
+            <DialogDescription>
+              Continue a previous conversation or start a new one.
+            </DialogDescription>
+          </DialogHeader>
+          <Button
+            variant="outline"
+            className="w-full justify-start"
+            onClick={startNewChat}
+            disabled={busy}
+          >
+            <Plus className="size-4" aria-hidden="true" />
+            New chat
+          </Button>
+          <div className="max-h-80 overflow-y-auto">{conversationList()}</div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={source !== null} onOpenChange={(open) => !open && setSource(null)}>
         <DialogContent className="max-w-2xl">

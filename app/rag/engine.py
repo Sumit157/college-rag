@@ -55,9 +55,14 @@ class ChatEngine:
         )
         return [item for item in evidence if item.relevance >= self._threshold]
 
-    def build_messages(self, question: str, evidence: list[Evidence]) -> list[dict]:
+    def build_messages(
+        self,
+        question: str,
+        evidence: list[Evidence],
+        history: list[dict] | None = None,
+    ) -> list[dict]:
         context = build_context(evidence, self._context_max_tokens)
-        return build_messages(question, context)
+        return build_messages(question, context, history=history)
 
     async def generate(self, messages: list[dict]) -> str:
         answer = await self._llm.chat(messages)

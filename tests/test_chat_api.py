@@ -80,8 +80,9 @@ def test_chat_returns_grounded_answer_with_evidence(make_client, fake_stack) -> 
 
     assert response.status_code == 200, response.text
     body = response.json()
-    assert set(body) == {"answer", "evidence", "grounded"}
+    assert set(body) == {"answer", "evidence", "grounded", "conversation_id"}
     assert body["grounded"] is True
+    assert body["conversation_id"]
     assert body["answer"] == "Paging divides memory into fixed-size frames [1]."
     assert body["evidence"]
     assert body["evidence"][0]["filename"] == "os.txt"
@@ -145,6 +146,7 @@ def test_chat_stream_emits_meta_tokens_done(make_client, fake_stack) -> None:
     meta = events[0]
     assert meta["grounded"] is True
     assert meta["evidence"][0]["filename"] == "os.txt"
+    assert meta["conversation_id"]
 
     tokens = [e["text"] for e in events[1:-1]]
     assert "".join(tokens) == "Paging divides frames [1]."
@@ -153,6 +155,7 @@ def test_chat_stream_emits_meta_tokens_done(make_client, fake_stack) -> None:
     assert done["answer"] == "Paging divides frames [1]."
     assert done["grounded"] is True
     assert done["evidence"][0]["id"] == "evidence-1"
+    assert done["conversation_id"] == meta["conversation_id"]
     assert fake_stack.stream_calls
 
 

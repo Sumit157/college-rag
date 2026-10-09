@@ -12,7 +12,10 @@ conversations
 messages
 ```
 
-Only `documents` and `document_chunks` are required for the MVP.
+Only `documents` and `document_chunks` are required for the MVP;
+`conversations` is implemented (chat history). `subjects` and `messages` are
+planned — chat history stores its turns embedded in each conversation instead
+of a separate `messages` collection.
 
 ## Document
 
@@ -44,6 +47,37 @@ Only `documents` and `document_chunks` are required for the MVP.
   "chunk_index": 18
 }
 ```
+
+## Conversation
+
+```json
+{
+  "_id": "...",
+  "title": "Explain paging",
+  "turns": [
+    {
+      "id": "turn-1",
+      "question": "Explain paging",
+      "answer": "...",
+      "grounded": true,
+      "evidence": [],
+      "subject": null,
+      "semester": null,
+      "document_id": null,
+      "created_at": "..."
+    }
+  ],
+  "turn_count": 1,
+  "created_at": "...",
+  "updated_at": "..."
+}
+```
+
+Title is the first question (truncated to 80 chars). Turns are appended after
+each successful chat request; `updated_at` changes with them. Index:
+`updated_at` descending (conversation list order). Conversations with
+`turn_count: 0` are created when a chat starts but hidden from the list until
+the first turn is saved.
 
 ## Vector index
 
