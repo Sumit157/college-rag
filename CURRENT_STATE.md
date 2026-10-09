@@ -105,7 +105,7 @@ Start Phase 4 — Chat UI.
 - Ollama generation (`app/llm/ollama.py`): `chat` (one-shot) + `chat_stream`
   (NDJSON deltas), temperature from `LLM_TEMPERATURE`; clear `OllamaError`s.
 - ChatEngine (`app/rag/engine.py`): retrieve → threshold filter
-  (`RELEVANCE_THRESHOLD`, default 0.4) → build context → generate.
+  (`RELEVANCE_THRESHOLD`, default 0.5) → build context → generate.
 - `POST /api/chat`: `{answer, evidence, grounded}`; no evidence above threshold →
   fixed missing-context message, `grounded: false`, LLM never called;
   LLM failure → friendly 503, no stack traces.
@@ -113,7 +113,8 @@ Start Phase 4 — Chat UI.
   or `error` on failure; no-evidence path emits `meta` + `done` without tokens.
 - Citations/evidence are assembled by backend code only; the LLM answers from
   numbered context blocks `[1] [2] ...`.
-- New config: `RELEVANCE_THRESHOLD` (0.4), `CONTEXT_MAX_TOKENS` (3000).
+- New config: `RELEVANCE_THRESHOLD` (0.5, calibrated against measured score gap:
+  related ≥ 0.55, unrelated ≤ 0.49), `CONTEXT_MAX_TOKENS` (3000).
 
 ---
 
@@ -252,6 +253,10 @@ None.
   question grounded in the uploaded PDF (evidence with pages + relevance 0.47–0.57,
   `grounded: true`); unrelated question → missing-context message; `POST /api/chat/stream`
   emitted meta → token → done events and streamed `docker rmi <image_name>`.
+- `RELEVANCE_THRESHOLD` raised 0.4 → 0.5 after measuring score separation on 10
+  questions (related top scores 0.555–0.654, unrelated 0.402–0.487). Battery re-run:
+  7/7 related questions grounded with correct Docker answers, 3/3 unrelated rejected
+  at retrieval (evidence=[], grounded=false, no LLM call, ~4.7s).
 
 ---
 

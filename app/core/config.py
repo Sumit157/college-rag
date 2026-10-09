@@ -50,7 +50,7 @@ class Settings(BaseSettings):
 
     # RAG / generation
     # Evidence below this relevance (cosine) is rejected as irrelevant.
-    relevance_threshold: float = 0.4
+    relevance_threshold: float = 0.5
     # Token budget for retrieved context handed to the LLM.
     context_max_tokens: int = 3000
 
