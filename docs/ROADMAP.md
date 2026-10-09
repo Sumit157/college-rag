@@ -14,15 +14,15 @@ The project is developed in explicit phases. Each phase must produce a usable, t
 **Checkpoint:** application starts and infrastructure connections work.
 
 ## Phase 1 — Document ingestion
-- [ ] Upload UI
-- [ ] File validation
-- [ ] PDF/DOCX/PPTX/TXT parsing
-- [ ] Cleaning
-- [ ] Chunking
-- [ ] Metadata
-- [ ] Duplicate detection
-- [ ] MongoDB document/chunk persistence
-- [ ] Indexing status
+- [x] Upload UI
+- [x] File validation
+- [x] PDF/DOCX/PPTX/TXT parsing
+- [x] Cleaning
+- [x] Chunking
+- [x] Metadata
+- [x] Duplicate detection
+- [x] MongoDB document/chunk persistence
+- [x] Indexing status
 
 **Checkpoint:** a document can be uploaded, indexed and inspected.
 

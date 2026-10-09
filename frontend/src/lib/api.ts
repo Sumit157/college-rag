@@ -27,7 +27,23 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
   } catch {
     throw new ApiError('Cannot reach the backend server.', 0)
   }
+  return handleResponse<T>(response)
+}
 
+export async function apiUpload<T>(path: string, formData: FormData): Promise<T> {
+  let response: Response
+  try {
+    response = await fetch(`${API_BASE}${path}`, {
+      method: 'POST',
+      body: formData,
+    })
+  } catch {
+    throw new ApiError('Cannot reach the backend server.', 0)
+  }
+  return handleResponse<T>(response)
+}
+
+async function handleResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
     let detail = `Request failed (${response.status}).`
     try {

@@ -11,8 +11,8 @@ The AI coding agent MUST read this file before starting work and MUST update it 
 ## Current Phase
 
 ```text
-Phase: 0
-Name: Foundation
+Phase: 1
+Name: Document Ingestion
 Status: COMPLETED
 ```
 
@@ -31,7 +31,7 @@ COMPLETED
 
 ```text
 Phase 0 — Foundation       [x] Completed
-Phase 1 — Ingestion        [ ] Not started
+Phase 1 — Ingestion        [x] Completed
 Phase 2 — Retrieval        [ ] Not started
 Phase 3 — Core RAG         [ ] Not started
 Phase 4 — Chat UI          [ ] Not started
@@ -45,24 +45,38 @@ Phase 7 — Advanced         [ ] Not started
 ## Current Objective
 
 ```text
-Start Phase 1 — Document Ingestion.
+Start Phase 2 — Retrieval.
 ```
 
 ---
 
 ## Completed
 
-- Repository structure (`app/`, `frontend/`, `tests/`, `data/`, `docs/`, `prompts/`).
-- Environment configuration (`.env.example`, `app/core/config.py` via pydantic-settings).
-- FastAPI skeleton (`app/main.py`) with CORS, lifespan-managed MongoDB connection.
-- `GET /api/health` endpoint: MongoDB ping + Ollama health/model check.
-- MongoDB connection wrapper (`app/database/mongo.py`).
-- Ollama adapter with health, ping, model list and structured health report (`app/llm/ollama.py`).
-- React + Vite + TypeScript frontend scaffold with Tailwind v4 and shadcn/ui (radix style).
-- shadcn/ui components installed: button, card, input, textarea, dialog, badge, separator, skeleton, scroll-area, alert.
-- Base UI shell: sidebar navigation (Dashboard / Documents / Chat / Settings), four pages with empty states, live system-status panels.
-- Frontend API client (`src/lib/api.ts`), health hook (`src/hooks/useHealth.ts`), Vite dev proxy to the backend.
-- Backend test suite (16 tests) covering config, health endpoint, Ollama adapter and live infrastructure checks.
+### Phase 0 — Foundation
+- FastAPI skeleton, centralised env config, CORS, lifespan-managed MongoDB connection.
+- `GET /api/health`: MongoDB ping + Ollama health/model report.
+- React + Vite + TypeScript frontend, Tailwind v4, shadcn/ui, base shell
+  (Dashboard / Documents / Chat / Settings) with live status panels.
+- ReactBits Pro dropped (paid registry) — shadcn/ui is the UI foundation (docs updated).
+
+### Phase 1 — Document Ingestion
+- `POST/GET/DELETE /api/documents`, `GET /api/documents/{id}`, `GET /api/documents/{id}/chunks`,
+  `GET /api/stats` (all under `/api`).
+- Validation chain: extension whitelist → size limit (middleware + byte check, 413) →
+  declared-MIME check → byte-level content sniffing (PDF magic, DOCX/PPTX zip parts, TXT binary guard).
+- SHA-256 hashing with duplicate detection (409 with existing document).
+- Parsers preserving source metadata: PDF (PyMuPDF, per-page + heading heuristic sections),
+  DOCX (heading styles, tables, no pages), PPTX (per-slide, slide titles), TXT (heading heuristic).
+- Cleaning (line endings, control chars, blank-line collapse) + section heuristics.
+- Configurable chunking (default 600 tokens, 80 overlap; `CHUNK_SIZE_TOKENS`/`CHUNK_OVERLAP_TOKENS`),
+  never crosses page boundaries, hard-splits oversized units, section/page metadata per chunk.
+- Ingestion pipeline with status lifecycle `processing → indexed | failed`; failures keep a
+  user-safe error message on the document record.
+- MongoDB repositories with indexes (file_hash, subject+semester, status, created_at, document_id);
+  deletion removes document **and** all its chunks.
+- Documents UI: upload form (file + subject + semester), status badges, filters, table,
+  detail dialog with chunk preview, delete confirmation dialog.
+- Dashboard wired to `/api/stats` and recent documents.
 
 ---
 
@@ -74,29 +88,38 @@ Start Phase 1 — Document Ingestion.
 
 ## Remaining
 
-- Phase 1 requirements (upload, validation, parsers, chunking, metadata, persistence).
+- Phase 2 requirements (embedding provider, vector index, semantic search, evidence objects).
 
 ---
 
 ## Files/Components Implemented
 
 ```text
-app/main.py                    FastAPI app factory, CORS, lifespan
-app/core/config.py             Settings (env-driven, centralised)
-app/database/mongo.py          Mongo wrapper (ping/close, app-wide connection)
-app/llm/ollama.py              OllamaProvider (ping, list_models, health)
-app/api/routes/health.py       GET /api/health
-app/models/health.py           Health response schemas
-frontend/                      Vite + React + TS + Tailwind v4 + shadcn/ui
-frontend/src/App.tsx           Router (Dashboard/Documents/Chat/Settings)
-frontend/src/components/layout/AppShell.tsx
-frontend/src/pages/{Dashboard,Documents,Chat,Settings}.tsx
-frontend/src/lib/api.ts        Typed fetch helper with safe error messages
-frontend/src/hooks/useHealth.ts
-tests/test_config.py           4 tests
-tests/test_health.py           4 tests
-tests/test_ollama.py           6 tests
-tests/test_live_infra.py       2 tests (skip-safe)
+Backend
+  app/main.py                      app factory, CORS, upload size guard, routers
+  app/core/config.py               settings (env-driven)
+  app/database/mongo.py            connection wrapper
+  app/database/repositories.py     DocumentRepository, ChunkRepository + indexes
+  app/llm/ollama.py                Ollama health/model adapter
+  app/api/routes/health.py         GET /api/health
+  app/api/routes/documents.py      upload/list/detail/chunks/delete
+  app/api/routes/stats.py          GET /api/stats
+  app/ingestion/validation.py      extension/MIME/size/content checks
+  app/ingestion/hashing.py         sha256
+  app/ingestion/cleaning.py        text normalisation
+  app/ingestion/sections.py        heading heuristics
+  app/ingestion/parsers.py         PDF/DOCX/PPTX/TXT parsers (ParsedUnit)
+  app/ingestion/chunking.py        page-safe chunker with overlap
+  app/ingestion/pipeline.py        validate → hash → parse → chunk → store
+  app/ingestion/errors.py          user-safe errors with HTTP status codes
+  app/models/health.py, document.py
+
+Frontend
+  frontend/src/pages/Documents.tsx  upload, table, filters, detail + delete dialogs
+  frontend/src/pages/Dashboard.tsx  stats + recent documents
+  frontend/src/types/document.ts    API types
+  frontend/src/lib/api.ts           apiFetch + apiUpload (safe error messages)
+  frontend/src/components/ui/{select,table,...}.tsx
 ```
 
 ---
@@ -104,19 +127,24 @@ tests/test_live_infra.py       2 tests (skip-safe)
 ## Tests
 
 ```text
-Tests written: 16
-Tests passing: 16
+Tests written: 93
+Tests passing: 93
 Tests failing: 0
 ```
 
-Frontend: `npm run build` (tsc + vite) passes, `npm run lint` (oxlint) passes with warnings only.
+Covers: validation, hashing, cleaning, section heuristics, chunking, all four parsers,
+repositories (live MongoDB), document API end-to-end (upload/duplicate/filters/chunks/delete/stats),
+config, health endpoint, Ollama adapter, live infrastructure.
+
+Frontend: `npm run build` (tsc + vite) and `npm run lint` (oxlint) pass (warnings only).
 
 ---
 
 ## Known Issues
 
-- Port 8000 on this machine is occupied by an unrelated process; local verification ran the backend on port 8010 with `VITE_API_PROXY_TARGET=http://localhost:8010`. Default config remains 8000 (`uvicorn app.main:app --reload`).
-- The shadcn CLI created component files under a literal `@\components` directory on first install (root tsconfig.json lacked path aliases); fixed by adding `paths` to `tsconfig.json` and reinstalling components into `src/components/ui`.
+- Port 8000 on this machine is occupied by an unrelated process; local verification runs the
+  backend on port 8010 with `VITE_API_PROXY_TARGET=http://localhost:8010`. Defaults remain 8000.
+- Chunk embeddings are stored as `embedding: null` — Phase 2 fills them.
 
 ---
 
@@ -131,30 +159,32 @@ None.
 ## Architecture Decisions
 
 - MongoDB is the primary database and vector-search store.
-- Ollama is the local LLM runtime.
-- React + Vite is the frontend.
-- FastAPI is the backend.
+- Ollama is the local LLM runtime; React + Vite frontend; FastAPI backend.
 - RAG answers must be grounded exclusively in uploaded documents.
-- **ReactBits Pro components are not used** (user decision, 2026-10-08): the registry requires a paid
-  license key. Chat, composer and dialogs are built with shadcn/ui. Docs updated
-  (docs/TECH_STACK.md, docs/UI.md, docs/ROADMAP.md, docs/DEVELOPMENT.md, README.md).
-- Backend uses synchronous pymongo wrapped with `run_in_threadpool` in async routes (kept simple; revisit if needed).
+- ReactBits Pro components are not used (paid license); shadcn/ui instead (2026-10-08).
+- Uploads are parsed in-memory (max `MAX_UPLOAD_SIZE_MB`, default 20 MB); raw files are not stored —
+  MongoDB holds document metadata + chunks only.
+- Chunks never cross page boundaries; section metadata comes from the chunk's first unit.
+- Document IDs are exposed as strings; `to_object_id` guards invalid IDs (404).
 
 ---
 
 ## Recent Progress
 
-- Phase 0 scaffolded: FastAPI skeleton + React/Vite skeleton + shadcn/ui.
-- Health endpoint verified live: MongoDB `ok`, Ollama `ok` (llama3.2:3b, nomic-embed-text).
-- UI shell verified in headless Chrome (Dashboard and Settings render with live data).
+- Phase 0 verified: health endpoint, UI shell, 16 tests.
+- Phase 1 verified end-to-end: TXT + PDF uploaded through the dev proxy → indexed →
+  3 chunks with page/section/subject/semester in MongoDB; duplicate → 409; `.exe` → 415;
+  Documents page screenshot confirmed upload/list/status/actions UI.
+- Library cleaned up after verification (0 documents left behind).
 
 ---
 
 ## Last Completed Task
 
 ```text
-Phase 0 acceptance verified: backend tests (16/16) pass, frontend builds and
-renders, MongoDB and Ollama health checks report ok.
+Phase 1 acceptance verified: 93/93 tests pass, end-to-end upload → parse → chunk →
+MongoDB confirmed (chunks carry page/section metadata), UI renders the library with
+status/filters/detail/delete.
 ```
 
 ---
@@ -162,10 +192,10 @@ renders, MongoDB and Ollama health checks report ok.
 ## Next Task
 
 ```text
-Start Phase 1 — Document Ingestion.
-Read docs/ROADMAP.md Phase 1, then implement upload, validation, hashing,
-PDF/DOCX/PPTX/TXT parsing, cleaning, chunking, metadata, MongoDB persistence
-and indexing status.
+Start Phase 2 — Retrieval.
+Read docs/ROADMAP.md Phase 2: embedding provider (configurable local model via Ollama),
+MongoDB vector index, semantic search with subject/semester/document filters,
+evidence objects and retrieval tests.
 ```
 
 ---
@@ -173,5 +203,5 @@ and indexing status.
 ## Last Updated
 
 ```text
-2026-10-08
+2026-10-09
 ```

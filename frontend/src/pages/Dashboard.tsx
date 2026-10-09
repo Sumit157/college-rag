@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { ArrowRight, CheckCircle2, FileText, MessageSquare, XCircle } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { Badge } from '@/components/ui/badge'
@@ -11,9 +12,30 @@ import {
 } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useHealth } from '@/hooks/useHealth'
+import { apiFetch, ApiError } from '@/lib/api'
+import type { DocumentItem, DocumentListResponse, StatsResponse } from '@/types/document'
 
 export function DashboardPage() {
   const { health, loading, error, refresh } = useHealth()
+  const [stats, setStats] = useState<StatsResponse | null>(null)
+  const [recent, setRecent] = useState<DocumentItem[]>([])
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const [statsData, docsData] = await Promise.all([
+          apiFetch<StatsResponse>('/stats'),
+          apiFetch<DocumentListResponse>('/documents'),
+        ])
+        setStats(statsData)
+        setRecent(docsData.items.slice(0, 5))
+      } catch (err: unknown) {
+        if (!(err instanceof ApiError)) {
+          setStats(null)
+        }
+      }
+    })()
+  }, [])
 
   const mongoOk = health?.mongo.status === 'ok'
   const ollamaOk = health?.ollama.status === 'ok'
@@ -39,13 +61,17 @@ export function DashboardPage() {
         <Card>
           <CardHeader className="pb-2">
             <CardDescription>Documents</CardDescription>
-            <CardTitle className="text-3xl">0</CardTitle>
+            <CardTitle className="text-3xl">
+              {stats ? stats.documents : <Skeleton className="h-8 w-12" />}
+            </CardTitle>
           </CardHeader>
         </Card>
         <Card>
           <CardHeader className="pb-2">
             <CardDescription>Subjects</CardDescription>
-            <CardTitle className="text-3xl">0</CardTitle>
+            <CardTitle className="text-3xl">
+              {stats ? stats.subjects : <Skeleton className="h-8 w-12" />}
+            </CardTitle>
           </CardHeader>
         </Card>
         <Card>
@@ -80,22 +106,54 @@ export function DashboardPage() {
 
       <div className="mt-6 grid gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle className="text-base">Recent documents</CardTitle>
-            <CardDescription>Your latest uploaded study material.</CardDescription>
+          <CardHeader className="flex-row items-start justify-between">
+            <div>
+              <CardTitle className="text-base">Recent documents</CardTitle>
+              <CardDescription>Your latest uploaded study material.</CardDescription>
+            </div>
+            <Button asChild variant="outline" size="sm">
+              <Link to="/documents">Manage</Link>
+            </Button>
           </CardHeader>
           <CardContent>
-            <div className="flex flex-col items-center justify-center rounded-lg border border-dashed px-6 py-10 text-center">
-              <FileText className="size-8 text-muted-foreground" aria-hidden="true" />
-              <p className="mt-3 text-sm font-medium">No documents yet</p>
-              <p className="mt-1 max-w-sm text-sm text-muted-foreground">
-                Upload PDFs, DOCX, PPTX or TXT files from the Documents page to
-                start building your study library.
-              </p>
-              <Button asChild variant="outline" className="mt-4">
-                <Link to="/documents">Go to Documents</Link>
-              </Button>
-            </div>
+            {recent.length === 0 && (
+              <div className="flex flex-col items-center justify-center rounded-lg border border-dashed px-6 py-10 text-center">
+                <FileText className="size-8 text-muted-foreground" aria-hidden="true" />
+                <p className="mt-3 text-sm font-medium">No documents yet</p>
+                <p className="mt-1 max-w-sm text-sm text-muted-foreground">
+                  Upload PDFs, DOCX, PPTX or TXT files from the Documents page to
+                  start building your study library.
+                </p>
+                <Button asChild variant="outline" className="mt-4">
+                  <Link to="/documents">Go to Documents</Link>
+                </Button>
+              </div>
+            )}
+            {recent.length > 0 && (
+              <ul className="divide-y">
+                {recent.map((doc) => (
+                  <li key={doc.id} className="flex items-center justify-between gap-3 py-2">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">{doc.filename}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {doc.subject} · Semester {doc.semester}
+                      </p>
+                    </div>
+                    <Badge
+                      variant={
+                        doc.status === 'failed'
+                          ? 'destructive'
+                          : doc.status === 'indexed'
+                            ? 'default'
+                            : 'secondary'
+                      }
+                    >
+                      {doc.status}
+                    </Badge>
+                  </li>
+                ))}
+              </ul>
+            )}
           </CardContent>
         </Card>
 

@@ -34,6 +34,15 @@ class Settings(BaseSettings):
     # Frontend origins allowed to call the API
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 
+    # Ingestion
+    max_upload_size_mb: int = 20
+    chunk_size_tokens: int = 600
+    chunk_overlap_tokens: int = 80
+
+    @property
+    def max_upload_size_bytes(self) -> int:
+        return self.max_upload_size_mb * 1024 * 1024
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
